@@ -7,6 +7,7 @@ from PIL.Image import Image
 from PIL.ImageFile import ImageFile
 from pydub import AudioSegment
 from PIL import Image, ImageSequence
+# from moviepy import ImageClip, ImageSequenceClip, AudioFileClip, CompositeVideoClip, VideoFileClip
 
 class SoundifierSettings:
     do_overlap_prevention: bool
@@ -98,13 +99,19 @@ def make_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -
 
     return output
 
-def save_blip_track(gif: str, audio: AudioSegment) -> None:
-    blip_track_path = gif[:len(gif) - 4] + ".wav"
+def save_blip_track(gif_path: str, settings: SoundifierSettings, audio: AudioSegment) -> None:
+    blip_track_path = gif_path[:len(gif_path) - 4] + "_voice.wav"
     audio.export(blip_track_path, format="wav")
     print(f"Successfully saved audio as {blip_track_path}")
+    # if settings.make_video:
+        # video_path = gif_path[:len(gif_path) - 4] + "_voiced.mp4"
+        # movie_audio = AudioFileClip(blip_track_path)
+        # gif = VideoFileClip(gif_path).with_duration(2)
+        # gif = gif.with_audio(movie_audio)
+        # gif.write_videofile(video_path)
 
 def make_and_save_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -> None:
-    save_blip_track(gif, make_blip_track(gif, settings, *sound_paths))
+    save_blip_track(gif, settings, make_blip_track(gif, settings, *sound_paths))
 
 if __name__ == '__main__':
     args: list[str] = sys.argv[1:]
@@ -113,16 +120,16 @@ if __name__ == '__main__':
         args.append("./voices/typer.wav")
 
     voice_paths: list[str] = []
-    gif_path: str = ""
+    path_of_gif: str = ""
     for path in args:
         if path[len(path) - 4:] == ".gif":
-            gif_path = path
+            path_of_gif = path
         if path[len(path) - 4:] == ".wav":
             voice_paths.append(path)
 
     if len(voice_paths) == 0:
         raise Exception("No voices provided!")
-    if gif_path == "":
+    if path_of_gif == "":
         raise Exception("No gif provided!")
 
-    make_and_save_blip_track(gif_path, SoundifierSettings(), *voice_paths)
+    make_and_save_blip_track(path_of_gif, SoundifierSettings(), *voice_paths)
