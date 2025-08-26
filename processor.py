@@ -7,21 +7,30 @@ from PIL.Image import Image
 from PIL.ImageFile import ImageFile
 from pydub import AudioSegment
 from PIL import Image, ImageSequence
-# from moviepy import ImageClip, ImageSequenceClip, AudioFileClip, CompositeVideoClip, VideoFileClip
 
 class SoundifierSettings:
+    output_audio_path: str
+    output_gif_path: str
+
     do_overlap_prevention: bool
     olp_hard_cutoff_leniency: int
     olp_fade_duration: int
     speed: float
-    make_video: bool
 
-    def __init__(self, overlap_hard_cutoff_leniency: int = 30, overlap_fade_duration: int = 20, speed: float = 1, make_video = True):
+    def __init__(self,
+                output_audio_path: str,
+                output_gif_path: str = None,
+                overlap_hard_cutoff_leniency: int = 30,
+                overlap_fade_duration: int = 20,
+                speed: float = 1
+    ):
+        self.output_audio_path = output_audio_path
+        self.output_gif_path = output_gif_path
+
         self.do_overlap_prevention = overlap_hard_cutoff_leniency != 0
         self.olp_hard_cutoff_leniency = overlap_hard_cutoff_leniency
         self.olp_fade_duration = overlap_fade_duration
         self.speed = speed
-        self.make_video = make_video
 
 def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> list[int]:
     gif: ImageFile = Image.open(gif_path)
@@ -37,6 +46,24 @@ def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> li
             timings.append(moment / settings.speed)
 
         prev_frame = frame.copy()
+
+    if settings.output_gif_path is not None:
+        frames = []
+        durations = []
+        for frame in ImageSequence.Iterator(gif):
+            copied_frame = frame.copy()
+            frames.append(copied_frame)
+            durations.append(copied_frame.info['duration'] / settings.speed)
+
+        frames[0].save(
+            settings.output_gif_path,
+            save_all=True,
+            append_images = frames[1:],
+            duration = durations,
+            loop = gif.info['loop'],
+            disposal = 2
+        )
+        print(f"Successfully saved speed-altered gif as {settings.output_gif_path}")
 
     return timings
 
@@ -99,19 +126,12 @@ def make_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -
 
     return output
 
-def save_blip_track(gif_path: str, settings: SoundifierSettings, audio: AudioSegment) -> None:
-    blip_track_path = gif_path[:len(gif_path) - 4] + "_voice.wav"
-    audio.export(blip_track_path, format="wav")
-    print(f"Successfully saved audio as {blip_track_path}")
-    # if settings.make_video:
-        # video_path = gif_path[:len(gif_path) - 4] + "_voiced.mp4"
-        # movie_audio = AudioFileClip(blip_track_path)
-        # gif = VideoFileClip(gif_path).with_duration(2)
-        # gif = gif.with_audio(movie_audio)
-        # gif.write_videofile(video_path)
+def save_blip_track(settings: SoundifierSettings, audio: AudioSegment) -> None:
+    audio.export(settings.output_audio_path, format="wav")
+    print(f"Successfully saved audio as {settings.output_audio_path}")
 
 def make_and_save_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -> None:
-    save_blip_track(gif, settings, make_blip_track(gif, settings, *sound_paths))
+    save_blip_track(settings, make_blip_track(gif, settings, *sound_paths))
 
 if __name__ == '__main__':
     args: list[str] = sys.argv[1:]
@@ -132,4 +152,4 @@ if __name__ == '__main__':
     if path_of_gif == "":
         raise Exception("No gif provided!")
 
-    make_and_save_blip_track(path_of_gif, SoundifierSettings(), *voice_paths)
+    make_and_save_blip_track(path_of_gif, SoundifierSettings("./test output/output.wav", speed=1, output_gif_path="./test output/output.gif"), *voice_paths)
