@@ -8,29 +8,7 @@ from PIL.ImageFile import ImageFile
 from pydub import AudioSegment
 from PIL import Image, ImageSequence
 
-class SoundifierSettings:
-    output_audio_path: str
-    output_gif_path: str
-
-    do_overlap_prevention: bool
-    olp_hard_cutoff_leniency: int
-    olp_fade_duration: int
-    speed: float
-
-    def __init__(self,
-                output_audio_path: str,
-                output_gif_path: str = None,
-                overlap_hard_cutoff_leniency: int = 30,
-                overlap_fade_duration: int = 20,
-                speed: float = 1
-    ):
-        self.output_audio_path = output_audio_path
-        self.output_gif_path = output_gif_path
-
-        self.do_overlap_prevention = overlap_hard_cutoff_leniency != 0
-        self.olp_hard_cutoff_leniency = overlap_hard_cutoff_leniency
-        self.olp_fade_duration = overlap_fade_duration
-        self.speed = speed
+from settings import SoundifierSettings
 
 def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> list[int]:
     gif: ImageFile = Image.open(gif_path)
@@ -38,12 +16,15 @@ def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> li
     timings = []
 
     moment = 0
+    letter_changes = 0
     prev_frame: Optional[Image] = None
     for frame in ImageSequence.Iterator(gif):
         moment += frame.info['duration']
 
         if prev_frame is None or frame.tobytes() != prev_frame.tobytes():
-            timings.append(moment / settings.speed)
+            letter_changes += 1
+            if letter_changes % settings.interval == 0:
+                timings.append(moment / settings.speed)
 
         prev_frame = frame.copy()
 
@@ -137,7 +118,7 @@ if __name__ == '__main__':
     args: list[str] = sys.argv[1:]
     if len(args) == 0:
         args.append("./test input/typer.gif")
-        args.append("./voices/typer.wav")
+        args.append("./test voices/typer.wav")
 
     voice_paths: list[str] = []
     path_of_gif: str = ""
