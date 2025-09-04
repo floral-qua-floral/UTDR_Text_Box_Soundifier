@@ -7,7 +7,7 @@ from PyQt6.QtCore import QSize, Qt, QUrl
 from PyQt6.QtMultimedia import QSoundEffect, QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFrame, \
     QSizePolicy, QComboBox, QCheckBox, QAbstractItemView, QFileDialog, QScrollArea
-from PyQt6.QtGui import QMovie, QPixmap, QFont, QIcon
+from PyQt6.QtGui import QMovie, QPixmap, QFont, QIcon, QDesktopServices
 
 import processor
 from settings import SoundifierSettings
@@ -105,7 +105,6 @@ class MainWindow(QWidget):
         self.setFixedSize(766, 670)
 
         self.text_box_display = TextBoxDisplayAndReceiver(self)
-        self.set_text_box("./assets/hint_text_box.gif")
         self.text_box_display.setScaledContents(False)
 
         self.config_layout = QHBoxLayout()
@@ -179,6 +178,12 @@ class MainWindow(QWidget):
 
         processing_layout = make_config_section("Processing")
 
+        temp_label = QLabel("\"Mettatonize\" feature has been\nforce-enabled for testing\npurposes.\n\nThis will be a setting later!")
+        temp_label.setFont(QFont("Arial", 13))
+        processing_layout.addWidget(temp_label)
+
+        processing_layout.addStretch()
+
         instructions_layout = make_config_section("Instructions")
         instructions_steps_label = QLabel(
         """
@@ -205,6 +210,9 @@ class MainWindow(QWidget):
 
         links_buttons_layout = QHBoxLayout()
 
+        links_buttons_layout.addWidget(make_link_button("generator.png", "https://www.demirramon.com/generators/undertale_text_box_generator", "Demirramon's Undertale Text Box Generator"))
+        links_buttons_layout.addStretch()
+        links_buttons_layout.addWidget(make_vertical_line())
         links_buttons_layout.addStretch()
         links_buttons_layout.addWidget(make_link_button("ko-fi.png", "https://ko-fi.com/floralquafloral", "Button for coolest people"))
         links_buttons_layout.addWidget(make_link_button("github.png", "https://github.com/floral-qua-floral/UTDR_Text_Box_Soundifier", "Visit project source code"))
@@ -251,10 +259,12 @@ class MainWindow(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.text_box_display)
         layout.addLayout(self.config_layout)
-        layout.addWidget(make_line(QFrame.Shape.HLine))
+        layout.addWidget(make_horizontal_line())
         layout.addWidget(self.nag_label)
         layout.addLayout(footer_layout)
         self.setLayout(layout)
+
+        self.set_text_box("./assets/hint_text_box.gif")
 
         self.character_dropdown.setCurrentText("Default")
         self.change_character()
@@ -265,9 +275,10 @@ class MainWindow(QWidget):
         # show the window
         self.show()
 
-    def set_text_box(self, gif_path, update_gif_path=True):
-        if update_gif_path:
+    def set_text_box(self, gif_path, from_preview=False):
+        if not from_preview:
             self.gif_path = gif_path
+            self.end_preview()
         self.movie = QMovie(gif_path)
         self.movie.updated.connect(self.movie_signal)
         as_pixmap = QPixmap(gif_path)
@@ -286,6 +297,9 @@ class MainWindow(QWidget):
     def movie_signal(self):
         if self.previewing and self.movie.currentFrameNumber() == 0:
             self.sound.play()
+
+    def update_movie_speed(self):
+        self.movie.setSpeed(round(self.settings.speed * 100))
 
     def load_characters(self, is_initial=False):
         populate_characters_dictionary(get_voices_directory())
@@ -318,7 +332,7 @@ class MainWindow(QWidget):
             if is_first:
                 is_first = False
             else:
-                universes_layout.addWidget(make_line(QFrame.Shape.HLine))
+                universes_layout.addWidget(make_horizontal_line())
             universes_layout.addLayout(universe_layout)
 
         universes_layout.addStretch()
@@ -352,7 +366,7 @@ class MainWindow(QWidget):
         return eligible
 
     def recheck_gif_eligibility(self):
-        eligible = self.recheck_eligibility() and self.settings.speed != 1
+        eligible = self.recheck_eligibility() and (self.settings.speed != 1 or (self.settings.mettatonize and self.settings.interval != 1))
         self.save_gif_button.setDisabled(not eligible)
         return eligible
 
@@ -435,7 +449,13 @@ class MainWindow(QWidget):
             self.sound = QSoundEffect()
             self.sound.setSource(QUrl.fromLocalFile(self.settings.output_audio_path))
             self.preview_button.setText("End Preview")
-            self.movie.jumpToFrame(0)
+
+            if self.settings.mettatonize and self.settings.interval != 1:
+                self.settings.output_gif_path = "./assets/preview_output.gif"
+                processor.get_blip_timings_from_gif(self.gif_path, self.settings)
+                self.set_text_box("./assets/preview_output.gif", from_preview=True)
+            else:
+                self.movie.jumpToFrame(0)
         else:
             self.end_preview()
         self.nag()
@@ -463,7 +483,7 @@ class MainWindow(QWidget):
             self.settings.output_gif_path = QFileDialog.getSaveFileName(self, caption="Save Speed-Altered Gif", filter="Gif images (*.gif)")[0]
             processor.get_blip_timings_from_gif(self.gif_path, self.settings) # This is kinda dumb but whatever
             self.settings.output_gif_path = None
-        self.nag()
+            self.nag()
 
     def nag(self):
         self.nag_label.setText("*Thanks for using the Soundifier! If this tool has been helpful for you and you'd like to say thanks, please consider [__leaving a tip on my Ko-fi__](https://ko-fi.com/floralquafloral).*")
@@ -489,6 +509,9 @@ def make_line(shape):
 
 def make_vertical_line():
     return make_line(QFrame.Shape.VLine)
+
+def make_horizontal_line():
+    return make_line(QFrame.Shape.HLine)
 
 def make_big_button(name):
     button = QPushButton(name)
@@ -553,10 +576,11 @@ def add_characters_from_universe(dropdown, universe):
             dropdown.addItem(name)
 
 def make_link_button(icon, url, tooltip):
-    button = QPushButton()
+    button: QPushButton = QPushButton()
     button.setIcon(QIcon(f"./assets/{icon}"))
     button.setIconSize(QSize(32, 32))
     button.setToolTip(tooltip)
+    button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
     return button
 
 if __name__ == '__main__':

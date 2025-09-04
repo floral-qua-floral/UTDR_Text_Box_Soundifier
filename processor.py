@@ -13,36 +13,85 @@ from settings import SoundifierSettings
 def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> list[int]:
     gif: ImageFile = Image.open(gif_path)
 
-    timings = []
+    prev_frame: Optional[Image] = None
+
+    frame_count = 0
+    last_changing_frame = 0
+    consecutive_identical_frames = 0
+
+    frames_before_pauses = []
+    frames_after_pauses = []
+
+    for frame in ImageSequence.Iterator(gif):
+        frame_count += 1
+        if prev_frame is None or frame.tobytes() != prev_frame.tobytes():
+            last_changing_frame = frame_count
+            if consecutive_identical_frames >= 2:
+                frames_after_pauses.append(frame_count)
+            consecutive_identical_frames = 0
+        else:
+            consecutive_identical_frames += 1
+            if consecutive_identical_frames == 2:
+                frames_before_pauses.append(frame_count - 2)
+
+        prev_frame = frame.copy()
 
     moment = 0
     letter_changes = 0
-    prev_frame: Optional[Image] = None
+    timings = []
+
+    frame_number = 0
+    metta_letters = 0
+    accumulated_frame_duration = 0
+    frames = []
+    durations = []
+
     for frame in ImageSequence.Iterator(gif):
         moment += frame.info['duration']
+        frame_number += 1
 
-        if prev_frame is None or frame.tobytes() != prev_frame.tobytes():
+        frame_natural_duration = frame.info['duration']
+        accumulated_frame_duration += frame_natural_duration / settings.speed
+
+        frame_changed = prev_frame is None or frame.tobytes() != prev_frame.tobytes()
+
+        if frame_number in frames_after_pauses:
+            letter_changes = 0
+
+        about_to_pause = frame_number in frames_before_pauses
+
+        if frame_changed:
             letter_changes += 1
-            if letter_changes % settings.interval == 0:
+
+            metta_letters += 1
+            consecutive_identical_frames = 0
+
+            if letter_changes % settings.interval == 0 or about_to_pause:
                 timings.append(moment / settings.speed)
+        else:
+            if consecutive_identical_frames >= 2:
+                metta_letters = 0
+            else:
+                metta_letters += 1
+            consecutive_identical_frames += 1
+
+        skip_rendering_frame = settings.mettatonize and metta_letters % settings.interval != 0 and frame_number < last_changing_frame and not about_to_pause
+
+        if not skip_rendering_frame:
+            frames.append(frame.copy())
+            durations.append(accumulated_frame_duration)
+            accumulated_frame_duration = 0
 
         prev_frame = frame.copy()
 
     if settings.output_gif_path is not None:
-        frames = []
-        durations = []
-        for frame in ImageSequence.Iterator(gif):
-            copied_frame = frame.copy()
-            frames.append(copied_frame)
-            durations.append(copied_frame.info['duration'] / settings.speed)
-
         frames[0].save(
             settings.output_gif_path,
             save_all=True,
-            append_images = frames[1:],
-            duration = durations,
-            loop = gif.info['loop'],
-            disposal = 2
+            append_images=frames[1:],
+            duration=durations,
+            loop=gif.info['loop'],
+            disposal=2
         )
         print(f"Successfully saved speed-altered gif as {settings.output_gif_path}")
 
