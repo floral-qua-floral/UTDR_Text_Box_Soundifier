@@ -72,6 +72,11 @@ class TextBoxDisplayAndReceiver(QLabel):
         print(f"Dropped in {path}")
         self.main_window.set_text_box(path)
 
+    def mouseDoubleClickEvent(self, event):
+        gif_path = QFileDialog.getOpenFileName(self.main_window, caption="Open File", filter="Gif images (*.gif)")[0]
+        if gif_path != "":
+            self.main_window.set_text_box(gif_path)
+
 class MainWindow(QWidget):
     settings: SoundifierSettings
 
@@ -448,6 +453,7 @@ class MainWindow(QWidget):
         <p style="text-indent:10px;">3. Configure the Soundifier's voice and processing settings to your liking.</p>
         <p style="text-indent:10px;">4. Press "Preview Sound" to hear the output in sync with the preview at the top, or press "Save Sound" when you're done. If you've adjusted any setting that would modify the gif, you can save that too with "Save Sound + Gif".</p>
         <p style="text-indent:10px;">5. Put the exported sound into the video editing software of your choice, at the same position of the timeline as the text box gif.</p>
+        <p>Tip: For slowed-down text boxes, you'll get better results putting the <em>original</em> text box straight from Demirramon's generator into your video editor and slowing it down using the editor controls, instead of using the "Save Sound + Gif" feature.</p>
         """
         )
 
@@ -534,7 +540,9 @@ class MainWindow(QWidget):
             pitch_label,
             self.min_pitch_field,
             pitch_mid_label,
-            self.max_pitch_field
+            self.max_pitch_field,
+            pitch_chance_label,
+            self.pitch_chance_field
         ]
 
         self.set_text_box("./assets/hint_text_box.gif")
@@ -1051,7 +1059,7 @@ def make_link_button(icon, url, tooltip):
 def make_pitch_field(connection):
     text_field: QLineEdit = QLineEdit("1.00")
     text_field.setValidator(QDoubleValidator())
-    text_field.setFixedWidth(28)
+    text_field.setFixedWidth(34)
     text_field.textChanged.connect(connection)
     return text_field
 
