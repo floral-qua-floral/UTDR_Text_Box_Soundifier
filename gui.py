@@ -4,21 +4,30 @@ import sys
 from typing import List, Dict
 
 from PyQt6.QtCore import QSize, Qt, QUrl
-from PyQt6.QtMultimedia import QSoundEffect, QAudioOutput, QMediaPlayer
+from PyQt6.QtGui import QMovie, QPixmap, QFont, QIcon, QDesktopServices, QDoubleValidator, QIntValidator
+from PyQt6.QtMultimedia import QSoundEffect
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFrame, \
-    QSizePolicy, QComboBox, QCheckBox, QAbstractItemView, QFileDialog, QScrollArea
-from PyQt6.QtGui import QMovie, QPixmap, QFont, QIcon, QDesktopServices
+    QSizePolicy, QComboBox, QCheckBox, QAbstractItemView, QFileDialog, QScrollArea, QSlider, QLineEdit, QPlainTextEdit
 
 import processor
+import settings
 from settings import SoundifierSettings
 
 CHARACTERS = {}
 DEFAULT_UNIVERSES = ["Basic", "Undertale", "Deltarune"]
 
+class VoiceSettings:
+    def __init__(self, interval, min_pitch, max_pitch, pitch_chance):
+        self.interval = round(interval)
+        self.min_pitch = min_pitch
+        self.max_pitch = max_pitch
+        self.pitch_chance = pitch_chance
+
 class BasicCharacter:
-    def __init__(self, voice_paths, universe):
+    def __init__(self, voice_paths, universe, default_settings):
         self.voice_paths = voice_paths
         self.universe = universe
+        self.default_settings = default_settings
 
     def get_variant_name(self):
         return "Variant"
@@ -33,10 +42,11 @@ class BasicCharacter:
             return self
 
 class CharacterWithVariant(BasicCharacter):
-    def __init__(self, voice_paths, universe, variant_name, variant_voice_paths):
-        super().__init__(voice_paths, universe)
+    def __init__(self, voice_paths, universe, default_settings, variant_name, variant_voice_paths, variant_settings):
+        super().__init__(voice_paths, universe, default_settings)
         self.variant_name = variant_name
-        self.variant = BasicCharacter(variant_voice_paths, universe)
+        self.variant = BasicCharacter(variant_voice_paths, universe, variant_settings)
+
 
     def get_variant_name(self):
         return self.variant_name
@@ -76,11 +86,37 @@ class MainWindow(QWidget):
     variant_label: QLabel
     variant_checkbox: QCheckBox
 
+    universe_incompatible: List[QWidget]
+
     add_file_button: QPushButton
     remove_file_button: QPushButton
 
     files: List[str]
     file_list: QListWidget
+
+    interval_slider: QSlider
+    interval_display: QLineEdit
+    mettatonize_widgets: List[QWidget]
+
+    min_pitch_field: QLineEdit
+    max_pitch_field: QLineEdit
+    pitch_chance_field: QLineEdit
+
+    speed_slider: QSlider
+    speed_field: QLineEdit
+
+    extra_noise_details: List[QWidget]
+
+    overlap_prevention_details: List[QWidget]
+
+    punctuation_skip_label: QLabel
+    punctuation_skip_checkbox: QCheckBox
+
+    punctuation_skip_incompatibility_label: QLabel
+
+    punctuation_skip_details: List[QWidget]
+
+    full_transcript: QPlainTextEdit
 
     nag_label: QLabel
 
@@ -90,6 +126,7 @@ class MainWindow(QWidget):
 
     sound: QSoundEffect
     previewing: bool
+    previewing_altered_gif: bool
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -99,10 +136,11 @@ class MainWindow(QWidget):
         self.sound = QSoundEffect()
         self.sound.setVolume(1.0)
         self.previewing = False
+        self.previewing_altered_gif = False
 
         # set the window title
         self.setWindowTitle("UTDR Text Box Soundifier")
-        self.setFixedSize(766, 670)
+        self.setFixedSize(766, 690)
 
         self.text_box_display = TextBoxDisplayAndReceiver(self)
         self.text_box_display.setScaledContents(False)
@@ -170,19 +208,237 @@ class MainWindow(QWidget):
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.file_list.itemSelectionChanged.connect(self.select_file_from_list)
 
+        interval_layout = QHBoxLayout()
+
+        interval_label = QLabel("Interval:")
+
+        self.interval_slider: QSlider = QSlider(Qt.Orientation.Horizontal)
+        self.interval_slider.setRange(1, 10)
+        self.interval_slider.valueChanged.connect(self.change_interval)
+
+        self.interval_display = QLineEdit("??")
+        self.interval_display.setFixedWidth(20)
+
+        mettatonize_label = QLabel("Mettatonize:")
+        mettatonize_checkbox: QCheckBox = QCheckBox()
+        mettatonize_checkbox.clicked.connect(self.toggle_mettatonize)
+
+        self.mettatonize_widgets = [
+            mettatonize_label,
+            mettatonize_checkbox
+        ]
+
+        interval_layout.addWidget(interval_label)
+        interval_layout.addWidget(self.interval_slider)
+        interval_layout.addWidget(self.interval_display)
+        interval_layout.addWidget(mettatonize_label)
+        interval_layout.addWidget(mettatonize_checkbox)
+
+        pitch_layout = QHBoxLayout()
+
+        pitch_label = QLabel("Pitch range:")
+
+        self.min_pitch_field = make_pitch_field(self.change_min_pitch)
+
+        pitch_mid_label = QLabel("to")
+
+        self.max_pitch_field = make_pitch_field(self.change_max_pitch)
+
+        pitch_chance_label = QLabel("Chance: ")
+
+        self.pitch_chance_field = make_pitch_field(self.change_pitch_chance)
+
+        pitch_layout.addWidget(pitch_label)
+        pitch_layout.addWidget(self.min_pitch_field)
+        pitch_layout.addWidget(pitch_mid_label)
+        pitch_layout.addWidget(self.max_pitch_field)
+        pitch_layout.addStretch()
+        pitch_layout.addWidget(pitch_chance_label)
+        pitch_layout.addWidget(self.pitch_chance_field)
+
         voice_layout.addLayout(character_layout)
         voice_layout.addLayout(variant_layout)
         voice_layout.addWidget(self.universe_scroll_area)
         voice_layout.addLayout(file_manage_layout)
         voice_layout.addWidget(self.file_list)
+        voice_layout.addLayout(interval_layout)
+        voice_layout.addLayout(pitch_layout)
 
         processing_layout = make_config_section("Processing")
 
-        temp_label = QLabel("\"Mettatonize\" feature has been\nforce-enabled for testing\npurposes.\n\nThis will be a setting later!")
-        temp_label.setFont(QFont("Arial", 13))
-        processing_layout.addWidget(temp_label)
+        speed_layout = QHBoxLayout()
 
+        speed_label = QLabel("Speed:")
+
+        self.speed_slider: QSlider = QSlider(Qt.Orientation.Horizontal)
+        self.speed_slider.setRange(1, 100)
+        self.speed_slider.setValue(100)
+        self.speed_slider.sliderMoved.connect(self.speed_slider_moved)
+
+        self.speed_field: QLineEdit = QLineEdit("1.00")
+        self.speed_field.setFixedWidth(30)
+        self.speed_field.textChanged.connect(self.speed_field_written)
+
+        speed_layout.addWidget(speed_label)
+        speed_layout.addWidget(self.speed_slider)
+        speed_layout.addWidget(self.speed_field)
+
+        easy_align_layout = QHBoxLayout()
+        easy_align_label = QLabel("Easy Alignment:")
+        easy_align_checkbox: QCheckBox = QCheckBox()
+        easy_align_checkbox.setChecked(True)
+
+        skip_first_blip_label = QLabel("Skip First Noise:")
+        skip_first_blip_checkbox: QCheckBox = QCheckBox()
+
+        easy_align_layout.addWidget(easy_align_label)
+        easy_align_layout.addWidget(easy_align_checkbox)
+        easy_align_layout.addWidget(make_vertical_line())
+        easy_align_layout.addWidget(skip_first_blip_label)
+        easy_align_layout.addWidget(skip_first_blip_checkbox)
+
+        extra_noise_layout = QHBoxLayout()
+
+        extra_noise_label = QLabel("Insert Extra Noise:")
+        extra_noise_checkbox: QCheckBox = QCheckBox()
+        extra_noise_checkbox.clicked.connect(self.toggle_extra_noise)
+
+        extra_noise_at_label = QLabel("@")
+
+        extra_noise_moment_field = make_ms_field(1000, self.change_extra_noise_time)
+
+        extra_noise_ms_label = QLabel(" ms")
+
+        self.extra_noise_details = [
+            extra_noise_at_label,
+            extra_noise_moment_field,
+            extra_noise_ms_label
+        ]
+
+        extra_noise_layout.addWidget(extra_noise_label)
+        extra_noise_layout.addWidget(extra_noise_checkbox)
+        extra_noise_layout.addWidget(extra_noise_at_label)
+        extra_noise_layout.addWidget(extra_noise_moment_field)
+        extra_noise_layout.addWidget(extra_noise_ms_label)
+
+        olp_toggle_layout = QHBoxLayout()
+
+        overlap_prevention_label = QLabel("<strong>Overlap Prevention:</strong>")
+
+        overlap_prevention_checkbox: QCheckBox = QCheckBox()
+        overlap_prevention_checkbox.clicked.connect(self.toggle_olp)
+
+        olp_toggle_layout.addStretch()
+        olp_toggle_layout.addWidget(overlap_prevention_label)
+        olp_toggle_layout.addWidget(overlap_prevention_checkbox)
+        olp_toggle_layout.addStretch()
+
+        olp_max_overlap_layout = QHBoxLayout()
+
+        olp_max_overlap_label = QLabel("Maximum overlap:")
+
+        olp_max_overlap_field = make_ms_field(20, self.change_max_overlap)
+
+        olp_max_overlap_ms_label = QLabel("ms")
+
+        olp_max_overlap_layout.addWidget(olp_max_overlap_label)
+        olp_max_overlap_layout.addWidget(olp_max_overlap_field)
+        olp_max_overlap_layout.addWidget(olp_max_overlap_ms_label)
+        olp_max_overlap_layout.addStretch()
+
+        olp_fade_duration_layout = QHBoxLayout()
+
+        olp_fade_duration_label = QLabel("Fade Duration:")
+
+        olp_fade_duration_field = make_ms_field(16, self.change_fade_duration)
+
+        olp_fade_duration_ms_label = QLabel("ms")
+
+        olp_fade_duration_layout.addWidget(olp_fade_duration_label)
+        olp_fade_duration_layout.addWidget(olp_fade_duration_field)
+        olp_fade_duration_layout.addWidget(olp_fade_duration_ms_label)
+        olp_fade_duration_layout.addStretch()
+
+        self.overlap_prevention_details = [
+            olp_max_overlap_label,
+            olp_max_overlap_field,
+            olp_max_overlap_ms_label,
+            olp_fade_duration_label,
+            olp_fade_duration_field,
+            olp_fade_duration_ms_label
+        ]
+
+        punctuation_skip_toggle_layout = QHBoxLayout()
+
+        self.punctuation_skip_label = QLabel("<strong>Skip Punctuation:</strong>")
+
+        self.punctuation_skip_checkbox: QCheckBox = QCheckBox()
+        self.punctuation_skip_checkbox.clicked.connect(self.toggle_punctuation_skip)
+
+        punctuation_skip_toggle_layout.addStretch()
+        punctuation_skip_toggle_layout.addWidget(self.punctuation_skip_label)
+        punctuation_skip_toggle_layout.addWidget(self.punctuation_skip_checkbox)
+        punctuation_skip_toggle_layout.addStretch()
+
+        self.punctuation_skip_incompatibility_label = QLabel("<br><em>Sorry, Punctuation Skipping only works when interval is set to exactly 1. <strong>;-;</strong></em>")
+        self.punctuation_skip_incompatibility_label.setWordWrap(True)
+        self.punctuation_skip_incompatibility_label.setFont(QFont("Arial", 12))
+        self.punctuation_skip_incompatibility_label.setHidden(True)
+        self.punctuation_skip_incompatibility_label.setDisabled(True)
+
+        skip_non_alphanumeric_layout = QHBoxLayout()
+
+        skip_non_alphanumeric_label = QLabel("Skip all non-alphanumeric characters:")
+
+        skip_non_alphanumeric_checkbox: QCheckBox = QCheckBox()
+        skip_non_alphanumeric_checkbox.setChecked(True)
+        skip_non_alphanumeric_checkbox.clicked.connect(self.toggle_skip_non_alphanumeric)
+
+        skip_non_alphanumeric_layout.addWidget(skip_non_alphanumeric_label)
+        skip_non_alphanumeric_layout.addWidget(skip_non_alphanumeric_checkbox)
+
+        skip_characters_layout = QHBoxLayout()
+
+        skip_characters_label = QLabel("Skip all of:")
+
+        skip_characters_field: QLineEdit = QLineEdit(self.settings.skip_characters)
+        skip_characters_field.textEdited.connect(self.edit_skip_characters)
+
+        skip_characters_layout.addWidget(skip_characters_label)
+        skip_characters_layout.addWidget(skip_characters_field)
+
+        punctuation_skip_require_label = QLabel("In order to use Punctuation Skipping, the contents of the text box <u><strong>must</strong></u> be copied below:")
+        punctuation_skip_require_label.setWordWrap(True)
+
+        self.full_transcript = QPlainTextEdit()
+        self.full_transcript.setFixedWidth(225)
+        self.full_transcript.textChanged.connect(self.edit_transcript)
+
+        self.punctuation_skip_details = [
+            skip_non_alphanumeric_label,
+            skip_non_alphanumeric_checkbox,
+            skip_characters_label,
+            skip_characters_field,
+            punctuation_skip_require_label,
+            self.full_transcript
+        ]
+
+        processing_layout.addLayout(speed_layout)
+        processing_layout.addLayout(easy_align_layout)
+        processing_layout.addLayout(extra_noise_layout)
+        processing_layout.addWidget(make_horizontal_line())
+        processing_layout.addLayout(olp_toggle_layout)
+        processing_layout.addLayout(olp_max_overlap_layout)
+        processing_layout.addLayout(olp_fade_duration_layout)
+        processing_layout.addWidget(make_horizontal_line())
+        processing_layout.addLayout(punctuation_skip_toggle_layout)
         processing_layout.addStretch()
+        processing_layout.addWidget(self.punctuation_skip_incompatibility_label)
+        processing_layout.addLayout(skip_non_alphanumeric_layout)
+        processing_layout.addLayout(skip_characters_layout)
+        processing_layout.addWidget(punctuation_skip_require_label)
+        processing_layout.addWidget(self.full_transcript)
+        processing_layout.addStretch(2)
 
         instructions_layout = make_config_section("Instructions")
         instructions_steps_label = QLabel(
@@ -190,7 +446,7 @@ class MainWindow(QWidget):
         <p style="text-indent:10px;">1. Use <a href="https://www.demirramon.com/generators/undertale_text_box_generator">Demirramon's Undertale Text Box Generator</a> to create an animated text box. (Make sure "Export settings>Format" is set to "Animated GIF".)</p>
         <p style="text-indent:10px;">2. Import the animated text box into the Soundifier. (Tip: You can double-click the Soundifier's text box, or drag-and-drop the gif onto it instead. You can even drag it directly from the browser!)</p>
         <p style="text-indent:10px;">3. Configure the Soundifier's voice and processing settings to your liking.</p>
-        <p style="text-indent:10px;">4. Press "Preview Sound" to hear the output in sync with the preview at the top, or press "Save Sound" when you're done. If you've adjusted the "Speed" setting, you can save a sped-up or slowed-down version of the gif with "Save Sound + Gif", for convenience.</p>
+        <p style="text-indent:10px;">4. Press "Preview Sound" to hear the output in sync with the preview at the top, or press "Save Sound" when you're done. If you've adjusted any setting that would modify the gif, you can save that too with "Save Sound + Gif".</p>
         <p style="text-indent:10px;">5. Put the exported sound into the video editing software of your choice, at the same position of the timeline as the text box gif.</p>
         """
         )
@@ -236,9 +492,9 @@ class MainWindow(QWidget):
         signature.setAlignment(Qt.AlignmentFlag.AlignBottom)
         signature.setFont(QFont("Arial", 11))
 
-        self.preview_button = make_big_button("Preview Sound")
+        self.preview_button = make_big_button("Preview")
         self.preview_button.setCheckable(True)
-        self.preview_button.clicked.connect(self.preview)
+        self.preview_button.clicked.connect(self.toggle_preview)
 
         self.save_button = make_big_button("Save Sound")
         self.save_button.clicked.connect(self.save)
@@ -264,10 +520,35 @@ class MainWindow(QWidget):
         layout.addLayout(footer_layout)
         self.setLayout(layout)
 
+        self.universe_incompatible = [
+            self.add_file_button,
+            self.remove_file_button,
+            self.file_list,
+
+            interval_label,
+            self.interval_slider,
+            self.interval_display,
+            mettatonize_label,
+            mettatonize_checkbox,
+
+            pitch_label,
+            self.min_pitch_field,
+            pitch_mid_label,
+            self.max_pitch_field
+        ]
+
         self.set_text_box("./assets/hint_text_box.gif")
 
         self.character_dropdown.setCurrentText("Default")
         self.change_character()
+
+        self.change_interval(1)
+
+        self.toggle_extra_noise(False)
+
+        self.toggle_olp(False)
+
+        self.toggle_punctuation_skip(False)
 
         self.recheck_eligibility()
         self.recheck_gif_eligibility()
@@ -278,11 +559,12 @@ class MainWindow(QWidget):
     def set_text_box(self, gif_path, from_preview=False):
         if not from_preview:
             self.gif_path = gif_path
+            self.previewing_altered_gif = False
             self.end_preview()
-        self.movie = QMovie(gif_path)
+        self.movie: QMovie = QMovie(gif_path)
         self.movie.updated.connect(self.movie_signal)
         as_pixmap = QPixmap(gif_path)
-        self.movie.setSpeed(round(self.settings.speed * 100))
+        # self.movie.setSpeed(round(self.settings.speed * 100))
 
         movie_aspect_ratio = as_pixmap.width() / as_pixmap.height()
 
@@ -360,7 +642,8 @@ class MainWindow(QWidget):
         # add_characters_from_universe(self.character_dropdown, "Deltarune")
 
     def recheck_eligibility(self):
-        eligible = len(self.files) != 0
+        self.end_preview()
+        eligible = len(self.files) != 0 and not (self.settings.skip_punctuation and self.settings.full_text == "")
         self.save_button.setDisabled(not eligible)
         self.preview_button.setDisabled(not eligible)
         return eligible
@@ -371,9 +654,8 @@ class MainWindow(QWidget):
         return eligible
 
     def configure_universes(self, checked):
-        self.add_file_button.setHidden(checked)
-        self.remove_file_button.setHidden(checked)
-        self.file_list.setHidden(checked)
+        for hideable_thing in self.universe_incompatible:
+            hideable_thing.setHidden(checked)
 
         self.universe_scroll_area.setHidden(not checked)
         #
@@ -390,7 +672,9 @@ class MainWindow(QWidget):
         self.add_file_button.setDisabled(not is_custom)
         self.remove_file_button.setDisabled(True)
         self.files.clear()
-        if not is_custom:
+        if is_custom:
+            self.apply_voice_settings(VoiceSettings(1, 1, 1, 1))
+        else:
             character: BasicCharacter = CHARACTERS[selected_character]
             self.files = character.voice_paths.copy()
 
@@ -402,19 +686,37 @@ class MainWindow(QWidget):
             self.variant_checkbox.setDisabled(not has_variant)
             self.variant_checkbox.setHidden(not has_variant)
 
+            self.apply_voice_settings(character.default_settings)
+
+            # This is hardcoded because it's literally just the one guy
+            is_mettaton = selected_character == "Undertale/Mettaton" or selected_character == "Mettaton"
+            self.settings.mettatonize = is_mettaton
+            self.mettatonize_widgets[1].setChecked(is_mettaton)
+
+            # self.change_interval(character.default_settings.interval, from_slider=False)
+
         self.update_file_list_widget()
         self.recheck_eligibility()
         self.end_preview()
-        # self.preview(self.previewing)
-        # self.play_voice_sound()
+
+    def apply_voice_settings(self, default_settings: VoiceSettings):
+        self.interval_slider.setValue(default_settings.interval)
+        self.min_pitch_field.setText(str(default_settings.min_pitch))
+        self.max_pitch_field.setText(str(default_settings.max_pitch))
+        self.pitch_chance_field.setText(str(default_settings.pitch_chance))
 
     def update_file_list_widget(self):
         self.file_list.clear()
         self.file_list.addItems(self.files)
 
     def toggle_variant(self):
-        self.files = CHARACTERS[self.character_dropdown.currentText()].maybe_get_variant(self.variant_checkbox.isChecked()).voice_paths.copy()
+        new_character = CHARACTERS[self.character_dropdown.currentText()].maybe_get_variant(self.variant_checkbox.isChecked())
+        self.files = new_character.voice_paths.copy()
         self.update_file_list_widget()
+
+        print(new_character.voice_paths)
+        print(new_character.default_settings.interval)
+        self.apply_voice_settings(new_character.default_settings)
 
         self.recheck_eligibility()
         self.end_preview()
@@ -440,7 +742,129 @@ class MainWindow(QWidget):
         self.remove_file_button.setDisabled(True)
         self.recheck_eligibility()
 
-    def preview(self, checked):
+    def change_interval(self, interval):
+        self.settings.interval = interval
+        self.interval_display.setText(str(interval))
+
+        for widget in self.mettatonize_widgets:
+            widget.setDisabled(interval == 1)
+
+        self.toggle_punctuation_skip_availability(interval == 1)
+
+        self.recheck_gif_eligibility()
+
+    def toggle_mettatonize(self, mettatonize):
+        self.settings.mettatonize = mettatonize
+        self.recheck_gif_eligibility()
+
+    def toggle_punctuation_skip_availability(self, available):
+        if not available:
+            self.punctuation_skip_checkbox.setChecked(False)
+            self.toggle_punctuation_skip(False)
+
+        self.punctuation_skip_incompatibility_label.setHidden(available)
+
+        self.punctuation_skip_label.setDisabled(not available)
+        self.punctuation_skip_checkbox.setDisabled(not available)
+
+        for widget in self.punctuation_skip_details:
+            widget.setHidden(not available)
+
+    def change_min_pitch(self, new_min):
+        try:
+            self.settings.min_pitch = float(new_min)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def change_max_pitch(self, new_max):
+        try:
+            self.settings.max_pitch = float(new_max)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def change_pitch_chance(self, new_chance):
+        try:
+            self.settings.random_pitch_chance = float(new_chance)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def speed_slider_moved(self, new_speed):
+        self.speed_field.setText(f"{(new_speed / 100):.2f}")
+
+    def speed_field_written(self, new_speed):
+        try:
+            self.settings.speed = float(new_speed)
+            self.speed_slider.setValue(round(self.settings.speed * 100))
+            self.recheck_gif_eligibility()
+        except ValueError:
+            pass
+
+    def toggle_easy_align(self, checked):
+        self.settings.easy_align = checked
+
+        self.end_preview()
+
+    def toggle_extra_noise(self, checked):
+        self.settings.do_extra_noise = checked
+
+        for widget in self.extra_noise_details:
+            widget.setDisabled(not checked)
+
+        self.end_preview()
+
+    def change_extra_noise_time(self, new_time):
+        try:
+            self.settings.extra_noise_time = int(new_time)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def toggle_olp(self, checked):
+        self.settings.do_overlap_prevention = checked
+
+        for widget in self.overlap_prevention_details:
+            widget.setDisabled(not checked)
+
+        self.end_preview()
+
+    def change_max_overlap(self, new_max):
+        try:
+            self.settings.olp_hard_cutoff_leniency = int(new_max)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def change_fade_duration(self, new_duration):
+        try:
+            self.settings.olp_fade_duration = int(new_duration)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def toggle_punctuation_skip(self, checked):
+        self.settings.skip_punctuation = checked
+
+        for widget in self.punctuation_skip_details:
+            widget.setDisabled(not checked)
+
+        self.recheck_eligibility()
+
+    def toggle_skip_non_alphanumeric(self, checked):
+        self.settings.skip_non_alphanumeric = checked
+        self.end_preview()
+
+    def edit_skip_characters(self, new_string):
+        self.settings.skip_characters = new_string
+        self.end_preview()
+
+    def edit_transcript(self):
+        self.settings.full_text = self.full_transcript.toPlainText()
+        self.recheck_eligibility()
+
+    def toggle_preview(self, checked):
         self.previewing = checked
         if checked:
             self.settings.output_audio_path = get_preview_path()
@@ -450,10 +874,11 @@ class MainWindow(QWidget):
             self.sound.setSource(QUrl.fromLocalFile(self.settings.output_audio_path))
             self.preview_button.setText("End Preview")
 
-            if self.settings.mettatonize and self.settings.interval != 1:
+            if self.settings.speed != 1 or (self.settings.mettatonize and self.settings.interval != 1):
                 self.settings.output_gif_path = "./assets/preview_output.gif"
                 processor.get_blip_timings_from_gif(self.gif_path, self.settings)
                 self.set_text_box("./assets/preview_output.gif", from_preview=True)
+                self.previewing_altered_gif = True
             else:
                 self.movie.jumpToFrame(0)
         else:
@@ -462,9 +887,11 @@ class MainWindow(QWidget):
 
     def end_preview(self):
         self.previewing = False
+        if self.previewing_altered_gif:
+            self.set_text_box(self.gif_path)
         if self.preview_button.isChecked():
             self.preview_button.setChecked(False)
-        self.preview_button.setText("Preview Sound")
+        self.preview_button.setText("Preview")
         self.sound.stop()
 
     def save(self):
@@ -473,7 +900,9 @@ class MainWindow(QWidget):
             self.settings.output_gif_path = None
             self.settings.output_audio_path = QFileDialog.getSaveFileName(self, caption="Save Soundifier Output", filter="Wav audio files (*.wav)")[0]
             if self.settings.output_audio_path != "":
-                processor.make_and_save_blip_track(self.gif_path, self.settings, *self.files)
+                try: processor.make_and_save_blip_track(self.gif_path, self.settings, *self.files)
+                except Exception as e:
+                    print(e)
                 self.nag()
                 return True
         return False
@@ -530,12 +959,45 @@ def clean_name(name):
         name = name.replace(str(i), "")
     return name
 
+def get_default_settings(full_path):
+    if full_path.endswith(".wav"):
+        full_path = full_path[:-4]
+    else:
+        full_path += "/"
+    full_path += ".default_settings"
+
+    fallback = VoiceSettings(1, 1, 1, 1)
+
+    if os.path.isfile(full_path):
+        with open(full_path, "r") as file:
+            fallback = get_settings_from_file(file, fallback)
+
+    return fallback
+
+def get_settings_from_file(file, fallback):
+    first_line = file.readline()
+    if first_line == "":
+        return fallback
+    return VoiceSettings(
+        number_from_line(first_line),
+        number_from_line(file.readline()),
+        number_from_line(file.readline()),
+        number_from_line(file.readline())
+    )
+
+def number_from_line(line):
+    if line == "":
+        return 1
+    if line.isdigit():
+        return int(line)
+    return float(line)
+
 def populate_characters_dictionary(path, prefix="", universe="Basic"):
     for character in os.listdir(path):
         full_path = path + character
         print(f"Checking out {full_path}")
         if os.path.isfile(full_path) and full_path.endswith(".wav"):
-            CHARACTERS[prefix + character.replace(".wav", "")] = BasicCharacter([full_path], universe)
+            CHARACTERS[prefix + character.replace(".wav", "")] = BasicCharacter([full_path], universe, get_default_settings(full_path))
         elif os.path.isdir(full_path):
             if os.path.isfile(full_path + "/.multi"):
                 print(f"Multiple characters in {character}, traversing...")
@@ -558,15 +1020,18 @@ def populate_characters_dictionary(path, prefix="", universe="Basic"):
 
                     if len(voice_paths) == 0:
                         print(f"Character supposedly has a variant but no non-variant sounds: {character}")
-                        CHARACTERS[prefix + character] = BasicCharacter(variant_name, universe)
+                        CHARACTERS[prefix + character] = BasicCharacter(variant_name, universe, get_default_settings(full_path))
                     else:
-                        CHARACTERS[prefix + character] = CharacterWithVariant(voice_paths, universe, variant_name, variant_paths)
+                        default_settings = get_default_settings(full_path)
+                        with open(full_path + "/.variant", "r") as file:
+                            variant_settings = get_settings_from_file(file, default_settings)
+                        CHARACTERS[prefix + character] = CharacterWithVariant(voice_paths, universe, default_settings, variant_name, variant_paths, variant_settings)
                 else:
                     voice_paths = []
                     for voice in os.listdir(full_path):
                         if voice.endswith(".wav"):
                             voice_paths.append(full_path + "/" + voice)
-                    CHARACTERS[prefix + character] = BasicCharacter(voice_paths, universe)
+                    CHARACTERS[prefix + character] = BasicCharacter(voice_paths, universe, get_default_settings(full_path))
         else:
             print(f"Something went wrong! Nothing at {full_path}!")
 
@@ -582,6 +1047,20 @@ def make_link_button(icon, url, tooltip):
     button.setToolTip(tooltip)
     button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
     return button
+
+def make_pitch_field(connection):
+    text_field: QLineEdit = QLineEdit("1.00")
+    text_field.setValidator(QDoubleValidator())
+    text_field.setFixedWidth(28)
+    text_field.textChanged.connect(connection)
+    return text_field
+
+def make_ms_field(default, connection):
+    text_field: QLineEdit = QLineEdit(str(default))
+    text_field.setValidator(QIntValidator())
+    text_field.setFixedWidth(40)
+    text_field.textChanged.connect(connection)
+    return text_field
 
 if __name__ == '__main__':
     # create the QApplication

@@ -1,37 +1,30 @@
 from typing import Optional
 
 class SoundifierSettings:
-    output_audio_path: str
-    output_gif_path: Optional[str]
+    def __init__(self, output_audio_path: str):
+        self.output_audio_path: str = output_audio_path
+        self.output_gif_path: Optional[str] = None
 
-    do_overlap_prevention: bool
-    olp_hard_cutoff_leniency: int
-    olp_fade_duration: int
-    speed: float
-    interval: int
+        self.speed: float = 1
 
-    mettatonize: bool
+        self.do_overlap_prevention: bool = False
+        self.olp_hard_cutoff_leniency: int = 20
+        self.olp_fade_duration: int = 16
 
-    def __init__(self,
-                output_audio_path: str,
-                output_gif_path: str = None,
+        self.interval: int = 1
+        self.mettatonize: bool = False
 
-                speed: float = 1,
+        self.random_pitch_chance: float = 1
+        self.min_pitch: float = 1
+        self.max_pitch: float = 1
 
-                overlap_hard_cutoff_leniency: int = 20,
-                overlap_fade_duration: int = 16,
+        self.easy_align: bool = True
+        self.skip_first_blip: bool = False
 
-                interval: int = 3,
-                mettatonize_gif: bool = True
-        ):
-        self.output_audio_path = output_audio_path
-        self.output_gif_path = output_gif_path
+        self.do_extra_noise: bool = False
+        self.extra_noise_moment: int = 0
 
-        self.speed = speed
-
-        self.do_overlap_prevention = overlap_hard_cutoff_leniency != 0
-        self.olp_hard_cutoff_leniency = overlap_hard_cutoff_leniency
-        self.olp_fade_duration = overlap_fade_duration
-
-        self.interval = interval
-        self.mettatonize = mettatonize_gif
+        self.skip_punctuation: bool = True
+        self.skip_non_alphanumeric = True
+        self.skip_characters: str = ""
+        self.full_text: str = ""
