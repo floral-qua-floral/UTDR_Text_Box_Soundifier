@@ -54,35 +54,52 @@ class CharacterWithVariant(BasicCharacter):
     def get_variant(self):
         return self.variant
 
-class TextBoxDisplayAndReceiver(QLabel):
+class TextBoxDisplayAndImporter(QLabel):
     def __init__(self, parent):
         super().__init__(parent)
         self.main_window: MainWindow = parent
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls and len(event.mimeData().urls()) == 1 and event.mimeData().urls()[0].path().endswith(".gif"):
+
+        if event.mimeData().hasUrls:
+            for url in event.mimeData().urls():
+                if not url.path().endswith(".gif"):
+                    event.ignore()
+                    return
+
             event.acceptProposedAction()
             return
 
         event.ignore()
 
     def dropEvent(self, event):
-        path = event.mimeData().urls()[0].toLocalFile()
-        print(f"Dropped in {path}")
-        self.main_window.set_text_box(path)
+        paths = []
+        for url in event.mimeData().urls():
+            paths.append(url.toLocalFile())
+        print(f"Dropped in {paths}")
+        self.main_window.set_gif_paths(paths)
 
     def mouseDoubleClickEvent(self, event):
-        gif_path = QFileDialog.getOpenFileName(self.main_window, caption="Open File", filter="Gif images (*.gif)")[0]
-        if gif_path != "":
-            self.main_window.set_text_box(gif_path)
+        gifs = self.main_window.select_gifs_with_dialog()
+        if len(gifs) > 0:
+            self.main_window.set_gif_paths(gifs)
 
 class MainWindow(QWidget):
     settings: SoundifierSettings
 
-    gif_path: str
+    gif_paths: List[str]
+    preview_index: int
     movie: QMovie
+
+    preview_index_display: QLabel
+
     text_box_display: QLabel
+
+    remove_batch_file_button: QPushButton
+    batch_file_list: QListWidget
+
+    batch_mode_only_widgets: List[QWidget]
 
     character_dropdown: QComboBox
     universe_scroll_area: QScrollArea
@@ -91,13 +108,13 @@ class MainWindow(QWidget):
     variant_label: QLabel
     variant_checkbox: QCheckBox
 
-    universe_incompatible: List[QWidget]
+    universe_incompatible_widgets: List[QWidget]
 
-    add_file_button: QPushButton
-    remove_file_button: QPushButton
+    add_voice_file_button: QPushButton
+    remove_voice_file_button: QPushButton
 
-    files: List[str]
-    file_list: QListWidget
+    voice_files: List[str]
+    voice_file_list: QListWidget
 
     interval_slider: QSlider
     interval_display: QLineEdit
@@ -142,17 +159,66 @@ class MainWindow(QWidget):
         self.sound.setVolume(1.0)
         self.previewing = False
         self.previewing_altered_gif = False
+        self.gif_paths = []
 
         # set the window title
         self.setWindowTitle("UTDR Text Box Soundifier")
-        self.setFixedSize(766, 690)
 
-        self.text_box_display = TextBoxDisplayAndReceiver(self)
+        text_box_layout = QHBoxLayout()
+
+        preview_changer_layout = QVBoxLayout()
+
+        previous_preview_button: QPushButton = QPushButton("Previous")
+        previous_preview_button.setFixedHeight(40)
+        previous_preview_button.clicked.connect(lambda: self.change_preview_index(-1))
+        self.preview_index_display = QLabel("??/??")
+        self.preview_index_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_index_display.setFont(QFont("Arial", 16))
+        next_preview_button: QPushButton = QPushButton("Next")
+        next_preview_button.setFixedHeight(40)
+        next_preview_button.clicked.connect(lambda: self.change_preview_index(1))
+
+        preview_changer_layout.addStretch()
+        preview_changer_layout.addWidget(previous_preview_button)
+        preview_changer_layout.addWidget(self.preview_index_display)
+        preview_changer_layout.addWidget(next_preview_button)
+        preview_changer_layout.addStretch()
+
+        self.text_box_display = TextBoxDisplayAndImporter(self)
         self.text_box_display.setScaledContents(False)
 
-        self.config_layout = QHBoxLayout()
+        text_box_layout.addStretch()
+        text_box_layout.addLayout(preview_changer_layout)
+        text_box_layout.addWidget(self.text_box_display)
+        text_box_layout.addStretch()
 
-        voice_layout = make_config_section("Voice")
+        config_layout = QHBoxLayout()
+
+        batch_mode_layout, batch_mode_label = make_config_section("Batch Mode")
+
+        batch_file_manage_layout = QHBoxLayout()
+
+        add_batch_file_button: QPushButton = QPushButton("Add File")
+        add_batch_file_button.clicked.connect(self.add_batch_file)
+        self.remove_batch_file_button: QPushButton = QPushButton("Remove File")
+        self.remove_batch_file_button.setDisabled(True)
+        self.remove_batch_file_button.clicked.connect(self.remove_batch_file)
+
+        batch_file_manage_layout.addWidget(add_batch_file_button)
+        batch_file_manage_layout.addWidget(self.remove_batch_file_button)
+
+        self.batch_file_list = QListWidget()
+        self.batch_file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.batch_file_list.itemSelectionChanged.connect(self.select_batch_file_from_list)
+
+        batch_mode_explanation = QLabel("<em>All exports in Batch Mode will use the same voice and settings for every text box!</em>")
+        batch_mode_explanation.setWordWrap(True)
+
+        batch_mode_layout.addLayout(batch_file_manage_layout)
+        batch_mode_layout.addWidget(self.batch_file_list)
+        batch_mode_layout.addWidget(batch_mode_explanation)
+
+        voice_layout = make_config_section("Voice")[0]
 
         character_layout = QHBoxLayout()
 
@@ -197,21 +263,21 @@ class MainWindow(QWidget):
 
         self.load_characters(is_initial=True)
 
-        file_manage_layout = QHBoxLayout()
+        manage_voice_files_layout = QHBoxLayout()
 
-        self.add_file_button = QPushButton("Add File")
-        self.add_file_button.clicked.connect(self.add_file)
-        self.remove_file_button = QPushButton("Remove File")
-        self.remove_file_button.setDisabled(True)
-        self.remove_file_button.clicked.connect(self.remove_file)
+        self.add_voice_file_button = QPushButton("Add File")
+        self.add_voice_file_button.clicked.connect(self.add_voice_sfx)
+        self.remove_voice_file_button = QPushButton("Remove File")
+        self.remove_voice_file_button.setDisabled(True)
+        self.remove_voice_file_button.clicked.connect(self.remove_voice_sfx)
 
-        file_manage_layout.addWidget(self.add_file_button)
-        file_manage_layout.addWidget(self.remove_file_button)
+        manage_voice_files_layout.addWidget(self.add_voice_file_button)
+        manage_voice_files_layout.addWidget(self.remove_voice_file_button)
 
-        self.files = []
-        self.file_list = QListWidget()
-        self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.file_list.itemSelectionChanged.connect(self.select_file_from_list)
+        self.voice_files = []
+        self.voice_file_list = QListWidget()
+        self.voice_file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.voice_file_list.itemSelectionChanged.connect(self.select_voice_file_from_list)
 
         interval_layout = QHBoxLayout()
 
@@ -264,12 +330,12 @@ class MainWindow(QWidget):
         voice_layout.addLayout(character_layout)
         voice_layout.addLayout(variant_layout)
         voice_layout.addWidget(self.universe_scroll_area)
-        voice_layout.addLayout(file_manage_layout)
-        voice_layout.addWidget(self.file_list)
+        voice_layout.addLayout(manage_voice_files_layout)
+        voice_layout.addWidget(self.voice_file_list)
         voice_layout.addLayout(interval_layout)
         voice_layout.addLayout(pitch_layout)
 
-        processing_layout = make_config_section("Processing")
+        processing_layout = make_config_section("Processing")[0]
 
         speed_layout = QHBoxLayout()
 
@@ -385,10 +451,9 @@ class MainWindow(QWidget):
         punctuation_skip_toggle_layout.addWidget(self.punctuation_skip_checkbox)
         punctuation_skip_toggle_layout.addStretch()
 
-        self.punctuation_skip_incompatibility_label = QLabel("<br><em>Sorry, Punctuation Skipping only works when interval is set to exactly 1. <strong>;-;</strong></em>")
+        self.punctuation_skip_incompatibility_label = QLabel(make_punctuation_skip_availability_excuse("IF YOU'RE SEEING THIS, THERE'S AN ERROR!"))
         self.punctuation_skip_incompatibility_label.setWordWrap(True)
         self.punctuation_skip_incompatibility_label.setFont(QFont("Arial", 12))
-        self.punctuation_skip_incompatibility_label.setHidden(True)
         self.punctuation_skip_incompatibility_label.setDisabled(True)
 
         skip_non_alphanumeric_layout = QHBoxLayout()
@@ -445,7 +510,7 @@ class MainWindow(QWidget):
         processing_layout.addWidget(self.full_transcript)
         processing_layout.addStretch(2)
 
-        instructions_layout = make_config_section("Instructions")
+        instructions_layout = make_config_section("Instructions")[0]
         instructions_steps_label = QLabel(
         """
         <p style="text-indent:10px;">1. Use <a href="https://www.demirramon.com/generators/undertale_text_box_generator">Demirramon's Undertale Text Box Generator</a> to create an animated text box. (Make sure "Export settings>Format" is set to "Animated GIF".)</p>
@@ -482,11 +547,15 @@ class MainWindow(QWidget):
         instructions_layout.addWidget(instructions_scroll)
         instructions_layout.addLayout(links_buttons_layout)
 
-        self.config_layout.addLayout(voice_layout)
-        self.config_layout.addWidget(make_vertical_line())
-        self.config_layout.addLayout(processing_layout)
-        self.config_layout.addWidget(make_vertical_line())
-        self.config_layout.addLayout(instructions_layout)
+        batch_mode_divider = make_vertical_line()
+
+        config_layout.addLayout(batch_mode_layout)
+        config_layout.addWidget(batch_mode_divider)
+        config_layout.addLayout(voice_layout)
+        config_layout.addWidget(make_vertical_line())
+        config_layout.addLayout(processing_layout)
+        config_layout.addWidget(make_vertical_line())
+        config_layout.addLayout(instructions_layout)
 
         self.nag_label = QLabel()
         self.nag_label.setOpenExternalLinks(True)
@@ -519,17 +588,18 @@ class MainWindow(QWidget):
         # footer_layout.addStretch()
 
         layout = QVBoxLayout()
-        layout.addWidget(self.text_box_display)
-        layout.addLayout(self.config_layout)
+        layout.addLayout(text_box_layout)
+        layout.addWidget(make_horizontal_line())
+        layout.addLayout(config_layout)
         layout.addWidget(make_horizontal_line())
         layout.addWidget(self.nag_label)
         layout.addLayout(footer_layout)
         self.setLayout(layout)
 
-        self.universe_incompatible = [
-            self.add_file_button,
-            self.remove_file_button,
-            self.file_list,
+        self.universe_incompatible_widgets = [
+            self.add_voice_file_button,
+            self.remove_voice_file_button,
+            self.voice_file_list,
 
             interval_label,
             self.interval_slider,
@@ -545,7 +615,21 @@ class MainWindow(QWidget):
             self.pitch_chance_field
         ]
 
-        self.set_text_box("./assets/hint_text_box.gif")
+        self.batch_mode_only_widgets = [
+            previous_preview_button,
+            self.preview_index_display,
+            next_preview_button,
+
+            batch_mode_label,
+            batch_mode_divider,
+
+            add_batch_file_button,
+            self.remove_batch_file_button,
+            self.batch_file_list,
+            batch_mode_explanation
+        ]
+
+        self.set_gif_paths(["./assets/hint_text_box.gif", "./test input/flowey.gif"])
 
         self.character_dropdown.setCurrentText("Default")
         self.change_character()
@@ -564,32 +648,84 @@ class MainWindow(QWidget):
         # show the window
         self.show()
 
-    def set_text_box(self, gif_path, from_preview=False):
-        if not from_preview:
-            self.gif_path = gif_path
-            self.previewing_altered_gif = False
-            self.end_preview()
-        self.movie: QMovie = QMovie(gif_path)
+    def set_gif_paths(self, new_gif_paths, reset_preview_index=True):
+        self.gif_paths = new_gif_paths.copy()
+        self.update_batch_file_list_widget()
+        self.previewing_altered_gif = False
+        self.toggle_batch_mode(len(self.gif_paths) > 1)
+
+        if reset_preview_index:
+            self.preview_index = 0
+        self.change_preview_index(0)
+        self.recheck_punctuation_skip_availability()
+
+    def change_preview_index(self, offset):
+        self.preview_index = (self.preview_index + offset) % len(self.gif_paths)
+        self.set_movie(self.gif_paths[self.preview_index])
+        self.preview_index_display.setText(f"{self.preview_index + 1}/{len(self.gif_paths)}")
+        self.end_preview()
+
+    def set_movie(self, movie_path):
+        print(f"Setting movie to {movie_path}")
+        self.movie: QMovie = QMovie(movie_path)
         self.movie.updated.connect(self.movie_signal)
-        as_pixmap = QPixmap(gif_path)
+        as_pixmap = QPixmap(movie_path)
         # self.movie.setSpeed(round(self.settings.speed * 100))
 
         movie_aspect_ratio = as_pixmap.width() / as_pixmap.height()
 
-        movie_final_height = 200
-        movie_final_width = round(movie_final_height * movie_aspect_ratio)
+        movie_final_width = 746
+        movie_final_height = round(movie_final_width / movie_aspect_ratio)
+        self.setFixedHeight(490 + movie_final_height)
 
         self.movie.setScaledSize(QSize(movie_final_width, movie_final_height))
         self.text_box_display.setMovie(self.movie)
         # self.setFixedSize(movie_final_width + 20, 670)
         self.movie.start()
 
+    def toggle_batch_mode(self, is_batch):
+        fixed_width = 1040 if is_batch else 766
+        self.setFixedWidth(fixed_width)
+
+        for widget in self.batch_mode_only_widgets:
+            widget.setHidden(not is_batch)
+
     def movie_signal(self):
         if self.previewing and self.movie.currentFrameNumber() == 0:
             self.sound.play()
 
-    def update_movie_speed(self):
-        self.movie.setSpeed(round(self.settings.speed * 100))
+    def add_batch_file(self):
+        add_gifs = self.select_gifs_with_dialog()
+        if len(add_gifs) != 0:
+            new_gifs = self.gif_paths.copy()
+            for add_gif in add_gifs:
+                if add_gif not in new_gifs:
+                    new_gifs.append(add_gif)
+
+            if len(new_gifs) != len(self.gif_paths):
+                self.set_gif_paths(new_gifs, reset_preview_index=False)
+
+    def remove_batch_file(self):
+        new_gif_paths = self.gif_paths.copy()
+        for remove_path in self.batch_file_list.selectedItems():
+            new_gif_paths.remove(remove_path.text())
+
+        self.remove_batch_file_button.setDisabled(True)
+        if len(new_gif_paths) == 0:
+            new_gif_paths.append("./assets/hint_text_box.gif")
+
+        self.set_gif_paths(new_gif_paths, reset_preview_index=False)
+
+    def select_batch_file_from_list(self):
+        selections_count = len(self.batch_file_list.selectedItems())
+        self.remove_batch_file_button.setDisabled(selections_count == 0)
+        if selections_count == 1:
+            self.preview_index = self.batch_file_list.selectedIndexes()[0].row()
+            self.change_preview_index(0)
+
+    def update_batch_file_list_widget(self):
+        self.batch_file_list.clear()
+        self.batch_file_list.addItems(self.gif_paths)
 
     def load_characters(self, is_initial=False):
         populate_characters_dictionary(get_voices_directory())
@@ -651,7 +787,7 @@ class MainWindow(QWidget):
 
     def recheck_eligibility(self):
         self.end_preview()
-        eligible = len(self.files) != 0 and not (self.settings.skip_punctuation and self.settings.full_text == "")
+        eligible = len(self.voice_files) != 0 and not (self.settings.skip_punctuation and self.settings.full_text == "")
         self.save_button.setDisabled(not eligible)
         self.preview_button.setDisabled(not eligible)
         return eligible
@@ -662,7 +798,7 @@ class MainWindow(QWidget):
         return eligible
 
     def configure_universes(self, checked):
-        for hideable_thing in self.universe_incompatible:
+        for hideable_thing in self.universe_incompatible_widgets:
             hideable_thing.setHidden(checked)
 
         self.universe_scroll_area.setHidden(not checked)
@@ -676,15 +812,15 @@ class MainWindow(QWidget):
         selected_character = self.character_dropdown.currentText()
 
         is_custom = selected_character == "Custom"
-        self.file_list.setDisabled(not is_custom)
-        self.add_file_button.setDisabled(not is_custom)
-        self.remove_file_button.setDisabled(True)
-        self.files.clear()
+        self.voice_file_list.setDisabled(not is_custom)
+        self.add_voice_file_button.setDisabled(not is_custom)
+        self.remove_voice_file_button.setDisabled(True)
+        self.voice_files.clear()
         if is_custom:
             self.apply_voice_settings(VoiceSettings(1, 1, 1, 1))
         else:
             character: BasicCharacter = CHARACTERS[selected_character]
-            self.files = character.voice_paths.copy()
+            self.voice_files = character.voice_paths.copy()
 
             self.variant_label.setText(character.get_variant_name() + ": ")
             self.variant_checkbox.setChecked(False)
@@ -703,7 +839,7 @@ class MainWindow(QWidget):
 
             # self.change_interval(character.default_settings.interval, from_slider=False)
 
-        self.update_file_list_widget()
+        self.update_voice_file_list_widget()
         self.recheck_eligibility()
         self.end_preview()
 
@@ -713,14 +849,14 @@ class MainWindow(QWidget):
         self.max_pitch_field.setText(str(default_settings.max_pitch))
         self.pitch_chance_field.setText(str(default_settings.pitch_chance))
 
-    def update_file_list_widget(self):
-        self.file_list.clear()
-        self.file_list.addItems(self.files)
+    def update_voice_file_list_widget(self):
+        self.voice_file_list.clear()
+        self.voice_file_list.addItems(self.voice_files)
 
     def toggle_variant(self):
         new_character = CHARACTERS[self.character_dropdown.currentText()].maybe_get_variant(self.variant_checkbox.isChecked())
-        self.files = new_character.voice_paths.copy()
-        self.update_file_list_widget()
+        self.voice_files = new_character.voice_paths.copy()
+        self.update_voice_file_list_widget()
 
         print(new_character.voice_paths)
         print(new_character.default_settings.interval)
@@ -731,23 +867,23 @@ class MainWindow(QWidget):
         # self.preview(self.previewing)
         # self.play_voice_sound()
 
-    def select_file_from_list(self):
-        self.remove_file_button.setDisabled(len(self.file_list.selectedItems()) == 0)
+    def select_voice_file_from_list(self):
+        self.remove_voice_file_button.setDisabled(len(self.voice_file_list.selectedItems()) == 0)
 
-    def add_file(self):
+    def add_voice_sfx(self):
         new_files = QFileDialog.getOpenFileNames(self, caption="Open File", filter="Wav audio files (*.wav)")[0]
         for new_file in new_files:
             if os.path.isfile(new_file) and new_file.endswith(".wav"):
-                self.files.append(new_file)
+                self.voice_files.append(new_file)
 
-        self.update_file_list_widget()
+        self.update_voice_file_list_widget()
         self.recheck_eligibility()
 
-    def remove_file(self):
-        for remove_path in self.file_list.selectedItems():
-            self.files.remove(remove_path.text())
-        self.update_file_list_widget()
-        self.remove_file_button.setDisabled(True)
+    def remove_voice_sfx(self):
+        for remove_path in self.voice_file_list.selectedItems():
+            self.voice_files.remove(remove_path.text())
+        self.update_voice_file_list_widget()
+        self.remove_voice_file_button.setDisabled(True)
         self.recheck_eligibility()
 
     def change_interval(self, interval):
@@ -757,7 +893,7 @@ class MainWindow(QWidget):
         for widget in self.mettatonize_widgets:
             widget.setDisabled(interval == 1)
 
-        self.toggle_punctuation_skip_availability(interval == 1)
+        self.recheck_punctuation_skip_availability()
 
         self.recheck_gif_eligibility()
 
@@ -765,11 +901,23 @@ class MainWindow(QWidget):
         self.settings.mettatonize = mettatonize
         self.recheck_gif_eligibility()
 
-    def toggle_punctuation_skip_availability(self, available):
+    def recheck_punctuation_skip_availability(self):
+        # available = self.settings.interval == 1 and len(self.gif_paths) == 1
+
+        available = True
+        excuse = "IF YOU'RE SEEING THIS, I'M BROKEN!! YIKES!"
+        if self.settings.interval != 1:
+            available = False
+            excuse = make_punctuation_skip_availability_excuse("when interval isn't set to exactly 1.")
+        if len(self.gif_paths) != 1:
+            available = False
+            excuse = make_punctuation_skip_availability_excuse(" in batch mode.")
+
         if not available:
             self.punctuation_skip_checkbox.setChecked(False)
             self.toggle_punctuation_skip(False)
 
+        self.punctuation_skip_incompatibility_label.setText(excuse)
         self.punctuation_skip_incompatibility_label.setHidden(available)
 
         self.punctuation_skip_label.setDisabled(not available)
@@ -877,57 +1025,91 @@ class MainWindow(QWidget):
         if checked:
             self.settings.output_audio_path = get_preview_path()
             self.settings.output_gif_path = None
-            processor.make_and_save_blip_track(self.gif_path, self.settings, *self.files)
+            processor.make_and_save_blip_track(self.gif_paths[self.preview_index], self.settings, *self.voice_files)
             self.sound = QSoundEffect()
             self.sound.setSource(QUrl.fromLocalFile(self.settings.output_audio_path))
             self.preview_button.setText("End Preview")
 
             if self.settings.speed != 1 or (self.settings.mettatonize and self.settings.interval != 1):
                 self.settings.output_gif_path = "./assets/preview_output.gif"
-                processor.get_blip_timings_from_gif(self.gif_path, self.settings)
-                self.set_text_box("./assets/preview_output.gif", from_preview=True)
+                processor.get_blip_timings_from_gif(self.gif_paths[self.preview_index], self.settings)
+                self.set_movie("./assets/preview_output.gif")
+                # self.set_gif_paths(["./assets/preview_output.gif"], from_preview=True)
                 self.previewing_altered_gif = True
             else:
                 self.movie.jumpToFrame(0)
         else:
             self.end_preview()
-        self.nag()
+        # self.nag()
 
     def end_preview(self):
         self.previewing = False
         if self.previewing_altered_gif:
-            self.set_text_box(self.gif_path)
+            self.set_movie(self.gif_paths[self.preview_index])
         if self.preview_button.isChecked():
             self.preview_button.setChecked(False)
         self.preview_button.setText("Preview")
         self.sound.stop()
 
     def save(self):
-        if self.recheck_eligibility():
-            self.end_preview()
+        self.save_with_maybe_gif(False)
+
+    def save_with_maybe_gif(self, do_gifs):
+        if not self.recheck_eligibility():
+            return False
+
+        saved_any = False
+
+        if len(self.gif_paths) == 1:
+            audio_path = QFileDialog.getSaveFileName(self, caption="Save Soundifier Output", filter="Wav audio files (*.wav)")[0]
+
             self.settings.output_gif_path = None
-            self.settings.output_audio_path = QFileDialog.getSaveFileName(self, caption="Save Soundifier Output", filter="Wav audio files (*.wav)")[0]
-            if self.settings.output_audio_path != "":
-                try: processor.make_and_save_blip_track(self.gif_path, self.settings, *self.files)
-                except Exception as e:
-                    print(e)
-                self.nag()
-                return True
-        return False
+            if do_gifs:
+                self.settings.output_gif_path = QFileDialog.getSaveFileName(self,
+                        caption="Save Speed-Altered Gif", filter="Gif images (*.gif)")[0]
+
+            saved_any = self.save_blip_track(self.gif_paths[0], audio_path)
+
+        else:
+            output_folder = QFileDialog.getExistingDirectory(caption="Save Soundifier Output")
+
+            self.settings.output_gif_path = None
+
+            if output_folder != "":
+                for save_for_gif in self.gif_paths:
+                    output_base_name = output_folder + "/" + save_for_gif.split("/")[-1][:-4]
+                    self.settings.output_gif_path = output_base_name + ".gif"
+                    if self.save_blip_track(save_for_gif, output_base_name + ".wav"):
+                        saved_any = True
+
+        if saved_any:
+            self.nag()
+        return saved_any
 
     def save_with_gif(self):
-        if self.save():
-            self.settings.output_gif_path = QFileDialog.getSaveFileName(self, caption="Save Speed-Altered Gif", filter="Gif images (*.gif)")[0]
-            processor.get_blip_timings_from_gif(self.gif_path, self.settings) # This is kinda dumb but whatever
-            self.settings.output_gif_path = None
-            self.nag()
+        self.save_with_maybe_gif(True)
+
+    def save_blip_track(self, for_gif_path, output_path):
+        self.settings.output_audio_path = output_path
+        if self.settings.output_gif_path is not None:
+            self.settings.output_gif_path = output_path[:-4] + ".gif"
+        if self.settings.output_audio_path != "":
+            try:
+                processor.make_and_save_blip_track(for_gif_path, self.settings, *self.voice_files)
+                return True
+            except Exception as e:
+                print(f"Failed to save sound for gif {for_gif_path}.\n\tCaused by: {e}")
+        return False
 
     def nag(self):
         self.nag_label.setText("*Thanks for using the Soundifier! If this tool has been helpful for you and you'd like to say thanks, please consider [__leaving a tip on my Ko-fi__](https://ko-fi.com/floralquafloral).*")
 
     def play_voice_sound(self):
-        self.sound.setSource(QUrl.fromLocalFile(random.choice(self.files)))
+        self.sound.setSource(QUrl.fromLocalFile(random.choice(self.voice_files)))
         self.sound.play()
+
+    def select_gifs_with_dialog(self):
+        return QFileDialog.getOpenFileNames(self, caption="Open File", filter="Gif images (*.gif)")[0]
 
 def make_config_section(name):
     layout = QVBoxLayout()
@@ -936,7 +1118,7 @@ def make_config_section(name):
     label.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred))
     label.setFont(QFont("Arial", 16))
     layout.addWidget(label)
-    return layout
+    return layout, label
 
 def make_line(shape):
     frame = QFrame()
@@ -1069,6 +1251,9 @@ def make_ms_field(default, connection):
     text_field.setFixedWidth(40)
     text_field.textChanged.connect(connection)
     return text_field
+
+def make_punctuation_skip_availability_excuse(excuse):
+    return f"<br><em>Sorry, Punctuation Skipping does not work {excuse} <strong>;-;</strong></em>"
 
 if __name__ == '__main__':
     # create the QApplication
