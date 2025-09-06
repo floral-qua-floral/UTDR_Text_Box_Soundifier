@@ -629,7 +629,7 @@ class MainWindow(QWidget):
             batch_mode_explanation
         ]
 
-        self.set_gif_paths(["./assets/hint_text_box.gif", "./test input/flowey.gif"])
+        self.set_gif_paths(["./assets/hint_text_box.gif"])
 
         self.character_dropdown.setCurrentText("Default")
         self.change_character()
