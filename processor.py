@@ -10,6 +10,7 @@ from PIL import Image, ImageSequence
 
 from settings import SoundifierSettings
 
+
 def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> list[int]:
     gif: ImageFile = Image.open(gif_path)
 
@@ -47,6 +48,8 @@ def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> li
     frames = []
     durations = []
 
+    silence_after_moment = -1
+
     for frame in ImageSequence.Iterator(gif):
         moment += frame.info['duration']
         frame_number += 1
@@ -68,8 +71,20 @@ def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> li
             consecutive_identical_frames = 0
 
             if letter_changes % settings.interval == 0 or about_to_pause:
-                if True or moment / settings.speed + moment_offset > 0:
-                    timings.append(moment / settings.speed + moment_offset)
+                offsetted_moment = moment / settings.speed + moment_offset
+                if offsetted_moment > 0:
+                    should_append = True
+
+                    if settings.cutoff_distance > 0:
+                        if silence_after_moment == -1:
+                            if len(timings) > 0 and offsetted_moment - timings[len(timings) - 1] >= settings.cutoff_distance / settings.speed:
+                                should_append = False
+                                silence_after_moment = offsetted_moment
+                        elif offsetted_moment > silence_after_moment:
+                            should_append = False
+
+                    if should_append:
+                        timings.append(offsetted_moment)
         else:
             if consecutive_identical_frames >= 2:
                 metta_letters = 0
@@ -99,6 +114,7 @@ def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> li
 
     return timings
 
+
 def insert_blip(
         insert_in: AudioSegment,
         voices: list[AudioSegment],
@@ -117,6 +133,7 @@ def insert_blip(
             voice = voice.fade_out(duration=settings.olp_fade_duration)
 
     return insert_in.overlay(voice, position=this_blip)
+
 
 def make_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -> AudioSegment:
     if len(sound_paths) == 1 and "#" in sound_paths[0] and not os.path.isfile(sound_paths[0]):
@@ -169,7 +186,6 @@ def make_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -
             if letter in settings.skip_characters:
                 skip_indices.append(character_index)
 
-
     total_duration = (final_blip_timing + (max_sound_length * 1000) + 150)
     output = AudioSegment.silent(duration=total_duration)
     for index in range(len(blip_timings)):
@@ -177,7 +193,7 @@ def make_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -
 
         next_blip: int
         if index == len(blip_timings) - 1:
-            next_blip = total_duration
+            next_blip = round(total_duration)
         else:
             next_blip = blip_timings[index + 1]
 
@@ -191,12 +207,15 @@ def make_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -
 
     return output
 
+
 def save_blip_track(settings: SoundifierSettings, audio: AudioSegment) -> None:
     audio.export(settings.output_audio_path, format="wav")
     print(f"Successfully saved audio as {settings.output_audio_path}")
 
+
 def make_and_save_blip_track(gif: str, settings: SoundifierSettings, *sound_paths: str) -> None:
     save_blip_track(settings, make_blip_track(gif, settings, *sound_paths))
+
 
 if __name__ == '__main__':
     args: list[str] = sys.argv[1:]

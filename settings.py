@@ -20,6 +20,7 @@ class SoundifierSettings:
 
         self.easy_align: bool = True
         self.skip_first_blip: bool = False
+        self.cutoff_distance: int = 1500
 
         self.do_extra_noise: bool = False
         self.extra_noise_moment: int = 0

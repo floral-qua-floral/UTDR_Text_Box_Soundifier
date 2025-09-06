@@ -4,7 +4,7 @@ import sys
 from typing import List, Dict
 
 from PyQt6.QtCore import QSize, Qt, QUrl
-from PyQt6.QtGui import QMovie, QPixmap, QFont, QIcon, QDesktopServices, QDoubleValidator, QIntValidator
+from PyQt6.QtGui import QMovie, QPixmap, QFont, QIcon, QDesktopServices, QDoubleValidator, QIntValidator, QCursor
 from PyQt6.QtMultimedia import QSoundEffect
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFrame, \
     QSizePolicy, QComboBox, QCheckBox, QAbstractItemView, QFileDialog, QScrollArea, QSlider, QLineEdit, QPlainTextEdit
@@ -47,7 +47,6 @@ class CharacterWithVariant(BasicCharacter):
         self.variant_name = variant_name
         self.variant = BasicCharacter(variant_voice_paths, universe, variant_settings)
 
-
     def get_variant_name(self):
         return self.variant_name
 
@@ -59,9 +58,9 @@ class TextBoxDisplayAndImporter(QLabel):
         super().__init__(parent)
         self.main_window: MainWindow = parent
         self.setAcceptDrops(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def dragEnterEvent(self, event):
-
         if event.mimeData().hasUrls:
             for url in event.mimeData().urls():
                 if not url.path().endswith(".gif"):
@@ -80,10 +79,13 @@ class TextBoxDisplayAndImporter(QLabel):
         print(f"Dropped in {paths}")
         self.main_window.set_gif_paths(paths)
 
-    def mouseDoubleClickEvent(self, event):
+    def mousePressEvent(self, event):
+        self.main_window.end_preview()
         gifs = self.main_window.select_gifs_with_dialog()
         if len(gifs) > 0:
             self.main_window.set_gif_paths(gifs)
+        elif self.main_window.gif_paths[0].startswith("./assets/hint"):
+            self.main_window.apply_text_box_from("./assets/did_not_select_from_hint")
 
 class MainWindow(QWidget):
     settings: SoundifierSettings
@@ -358,9 +360,12 @@ class MainWindow(QWidget):
         easy_align_label = QLabel("Easy Alignment:")
         easy_align_checkbox: QCheckBox = QCheckBox()
         easy_align_checkbox.setChecked(True)
+        easy_align_checkbox.clicked.connect(self.toggle_easy_align)
 
         skip_first_blip_label = QLabel("Skip First Noise:")
         skip_first_blip_checkbox: QCheckBox = QCheckBox()
+        skip_first_blip_checkbox.clicked.connect(self.toggle_skip_first_noise)
+
 
         easy_align_layout.addWidget(easy_align_label)
         easy_align_layout.addWidget(easy_align_checkbox)
@@ -392,12 +397,26 @@ class MainWindow(QWidget):
         extra_noise_layout.addWidget(extra_noise_moment_field)
         extra_noise_layout.addWidget(extra_noise_ms_label)
 
+        silence_cutoff_layout = QHBoxLayout()
+
+        silence_cutoff_label = QLabel("Prevent all noises after")
+
+        silence_cutoff_field = make_ms_field(1500, self.change_cutoff_time)
+
+        silence_cutoff_end_label = QLabel("ms of silence")
+
+        silence_cutoff_layout.addWidget(silence_cutoff_label)
+        silence_cutoff_layout.addWidget(silence_cutoff_field)
+        silence_cutoff_layout.addWidget(silence_cutoff_end_label)
+        silence_cutoff_layout.addStretch()
+
         olp_toggle_layout = QHBoxLayout()
 
         overlap_prevention_label = QLabel("<strong>Overlap Prevention:</strong>")
 
         overlap_prevention_checkbox: QCheckBox = QCheckBox()
         overlap_prevention_checkbox.clicked.connect(self.toggle_olp)
+        overlap_prevention_checkbox.setChecked(True)
 
         olp_toggle_layout.addStretch()
         olp_toggle_layout.addWidget(overlap_prevention_label)
@@ -496,6 +515,7 @@ class MainWindow(QWidget):
         processing_layout.addLayout(speed_layout)
         processing_layout.addLayout(easy_align_layout)
         processing_layout.addLayout(extra_noise_layout)
+        processing_layout.addLayout(silence_cutoff_layout)
         processing_layout.addWidget(make_horizontal_line())
         processing_layout.addLayout(olp_toggle_layout)
         processing_layout.addLayout(olp_max_overlap_layout)
@@ -514,7 +534,7 @@ class MainWindow(QWidget):
         instructions_steps_label = QLabel(
         """
         <p style="text-indent:10px;">1. Use <a href="https://www.demirramon.com/generators/undertale_text_box_generator">Demirramon's Undertale Text Box Generator</a> to create an animated text box. (Make sure "Export settings>Format" is set to "Animated GIF".)</p>
-        <p style="text-indent:10px;">2. Import the animated text box into the Soundifier. (Tip: You can double-click the Soundifier's text box, or drag-and-drop the gif onto it instead. You can even drag it directly from the browser!)</p>
+        <p style="text-indent:10px;">2. Import the animated text box into the Soundifier. (Tip: You can import multiple at a time to Soundify them as a batch!)</p>
         <p style="text-indent:10px;">3. Configure the Soundifier's voice and processing settings to your liking.</p>
         <p style="text-indent:10px;">4. Press "Preview Sound" to hear the output in sync with the preview at the top, or press "Save Sound" when you're done. If you've adjusted any setting that would modify the gif, you can save that too with "Save Sound + Gif".</p>
         <p style="text-indent:10px;">5. Put the exported sound into the video editing software of your choice, at the same position of the timeline as the text box gif.</p>
@@ -571,10 +591,10 @@ class MainWindow(QWidget):
         self.preview_button.setCheckable(True)
         self.preview_button.clicked.connect(self.toggle_preview)
 
-        self.save_button = make_big_button("Save Sound")
+        self.save_button = make_big_button("ERROR1")
         self.save_button.clicked.connect(self.save)
 
-        self.save_gif_button = make_big_button("Save Sound + Gif")
+        self.save_gif_button = make_big_button("ERROR2")
         self.save_gif_button.clicked.connect(self.save_with_gif)
         self.save_gif_button.setDisabled(True)
 
@@ -629,7 +649,10 @@ class MainWindow(QWidget):
             batch_mode_explanation
         ]
 
-        self.set_gif_paths(["./assets/hint_text_box.gif"])
+        hint = "./assets/hint_text_box.gif"
+        if random.choice(range(1, 5)) == 1:
+            hint = "./assets/hint_text_box_rare.gif"
+        self.set_gif_paths([hint])
 
         self.character_dropdown.setCurrentText("Default")
         self.change_character()
@@ -638,7 +661,7 @@ class MainWindow(QWidget):
 
         self.toggle_extra_noise(False)
 
-        self.toggle_olp(False)
+        self.toggle_olp(True)
 
         self.toggle_punctuation_skip(False)
 
@@ -676,7 +699,7 @@ class MainWindow(QWidget):
 
         movie_final_width = 746
         movie_final_height = round(movie_final_width / movie_aspect_ratio)
-        self.setFixedHeight(490 + movie_final_height)
+        self.setFixedHeight(542 + movie_final_height)
 
         self.movie.setScaledSize(QSize(movie_final_width, movie_final_height))
         self.text_box_display.setMovie(self.movie)
@@ -690,8 +713,12 @@ class MainWindow(QWidget):
         for widget in self.batch_mode_only_widgets:
             widget.setHidden(not is_batch)
 
+        self.save_button.setText("Save All Sounds" if is_batch else "Save Sound")
+        self.save_gif_button.setText("Save All Sounds && Gifs" if is_batch else "Save Sound && Gif")
+
     def movie_signal(self):
         if self.previewing and self.movie.currentFrameNumber() == 0:
+            self.sound.stop()
             self.sound.play()
 
     def add_batch_file(self):
@@ -712,7 +739,8 @@ class MainWindow(QWidget):
 
         self.remove_batch_file_button.setDisabled(True)
         if len(new_gif_paths) == 0:
-            new_gif_paths.append("./assets/hint_text_box.gif")
+            self.apply_text_box_from("./assets/removed_all_boxes")
+            return
 
         self.set_gif_paths(new_gif_paths, reset_preview_index=False)
 
@@ -960,7 +988,10 @@ class MainWindow(QWidget):
 
     def toggle_easy_align(self, checked):
         self.settings.easy_align = checked
+        self.end_preview()
 
+    def toggle_skip_first_noise(self, checked):
+        self.settings.skip_first_blip = checked
         self.end_preview()
 
     def toggle_extra_noise(self, checked):
@@ -974,6 +1005,13 @@ class MainWindow(QWidget):
     def change_extra_noise_time(self, new_time):
         try:
             self.settings.extra_noise_time = int(new_time)
+            self.end_preview()
+        except ValueError:
+            pass
+
+    def change_cutoff_time(self, new_time):
+        try:
+            self.settings.cutoff_distance = int(new_time)
             self.end_preview()
         except ValueError:
             pass
@@ -1046,6 +1084,7 @@ class MainWindow(QWidget):
         self.previewing = False
         if self.previewing_altered_gif:
             self.set_movie(self.gif_paths[self.preview_index])
+            self.previewing_altered_gif = False
         if self.preview_button.isChecked():
             self.preview_button.setChecked(False)
         self.preview_button.setText("Preview")
@@ -1110,6 +1149,23 @@ class MainWindow(QWidget):
 
     def select_gifs_with_dialog(self):
         return QFileDialog.getOpenFileNames(self, caption="Open File", filter="Gif images (*.gif)")[0]
+
+    def apply_text_box_from(self, path):
+        selection = random.choice(os.listdir(path))
+        self.set_gif_paths([path + "/" + selection])
+        try:
+            set_dropdown_to = selection[:-4].replace("_", "/")
+            self.character_dropdown.setCurrentText(set_dropdown_to)
+            if self.character_dropdown.currentText() == set_dropdown_to:
+                self.change_character()
+
+                if self.recheck_eligibility():
+                    self.toggle_preview(True)
+                    self.preview_button.setChecked(True)
+                    self.movie.jumpToFrame(0)
+                    self.movie_signal()
+        except Exception as e:
+            print(e)
 
 def make_config_section(name):
     layout = QVBoxLayout()
