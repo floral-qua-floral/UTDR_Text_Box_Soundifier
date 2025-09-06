@@ -396,10 +396,11 @@ class MainWindow(QWidget):
         extra_noise_layout.addWidget(extra_noise_at_label)
         extra_noise_layout.addWidget(extra_noise_moment_field)
         extra_noise_layout.addWidget(extra_noise_ms_label)
+        extra_noise_layout.addStretch()
 
         silence_cutoff_layout = QHBoxLayout()
 
-        silence_cutoff_label = QLabel("Prevent all noises after")
+        silence_cutoff_label = QLabel("Cut off after")
 
         silence_cutoff_field = make_ms_field(1500, self.change_cutoff_time)
 
@@ -1061,18 +1062,19 @@ class MainWindow(QWidget):
     def toggle_preview(self, checked):
         self.previewing = checked
         if checked:
+            doing_gif = self.settings.speed != 1 or (self.settings.mettatonize and self.settings.interval != 1)
+
+            self.settings.making_for_preview = True
             self.settings.output_audio_path = get_preview_path()
-            self.settings.output_gif_path = None
+            self.settings.output_gif_path = "./assets/preview_output.gif" if doing_gif else None
             processor.make_and_save_blip_track(self.gif_paths[self.preview_index], self.settings, *self.voice_files)
+            self.settings.making_for_preview = False
             self.sound = QSoundEffect()
             self.sound.setSource(QUrl.fromLocalFile(self.settings.output_audio_path))
             self.preview_button.setText("End Preview")
 
-            if self.settings.speed != 1 or (self.settings.mettatonize and self.settings.interval != 1):
-                self.settings.output_gif_path = "./assets/preview_output.gif"
-                processor.get_blip_timings_from_gif(self.gif_paths[self.preview_index], self.settings)
+            if doing_gif:
                 self.set_movie("./assets/preview_output.gif")
-                # self.set_gif_paths(["./assets/preview_output.gif"], from_preview=True)
                 self.previewing_altered_gif = True
             else:
                 self.movie.jumpToFrame(0)

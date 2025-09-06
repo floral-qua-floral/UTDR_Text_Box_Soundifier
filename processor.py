@@ -38,7 +38,11 @@ def get_blip_timings_from_gif(gif_path: str, settings: SoundifierSettings) -> li
         prev_frame = frame.copy()
 
     moment = 0
-    moment_offset = (-45 / settings.speed) if settings.easy_align else 0
+    moment_offset = 0
+    if settings.making_for_preview:
+        moment_offset = -30 / settings.speed
+    elif settings.easy_align:
+        moment_offset = -45 / settings.speed
     letter_changes = 0
     timings = []
 

@@ -19,6 +19,7 @@ class SoundifierSettings:
         self.max_pitch: float = 1
 
         self.easy_align: bool = True
+        self.making_for_preview: bool = True
         self.skip_first_blip: bool = False
         self.cutoff_distance: int = 1500
 
