@@ -693,9 +693,9 @@ class MainWindow(QWidget):
 
         movie_aspect_ratio = as_pixmap.width() / as_pixmap.height()
 
-        movie_final_width = 746
-        movie_final_height = round(movie_final_width / movie_aspect_ratio)
-        self.setFixedHeight(542 + movie_final_height)
+        movie_final_height = 200
+        movie_final_width = round(movie_final_height * movie_aspect_ratio)
+        self.setFixedHeight(742)
 
         self.movie.setScaledSize(QSize(movie_final_width, movie_final_height))
         self.text_box_display.setMovie(self.movie)
