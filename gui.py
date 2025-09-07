@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLay
 import processor
 import settings
 from settings import SoundifierSettings
+from girlhelp import resource_path
 
 CHARACTERS = {}
 DEFAULT_UNIVERSES = ["Basic", "Undertale", "Deltarune"]
@@ -84,8 +85,8 @@ class TextBoxDisplayAndImporter(QLabel):
         gifs = self.main_window.select_gifs_with_dialog()
         if len(gifs) > 0:
             self.main_window.set_gif_paths(gifs)
-        elif self.main_window.gif_paths[0].startswith("./assets/hint"):
-            self.main_window.apply_text_box_from("./assets/did_not_select_from_hint")
+        elif self.main_window.gif_paths[0].startswith(resource_path("./assets/hint")):
+            self.main_window.apply_text_box_from(resource_path("./assets/did_not_select_from_hint"))
 
 class MainWindow(QWidget):
     settings: SoundifierSettings
@@ -234,7 +235,7 @@ class MainWindow(QWidget):
         self.character_dropdown.activated.connect(self.change_character)
 
         universes_button: QPushButton = QPushButton()
-        universes_button.setIcon(QIcon("./assets/universes.png"))
+        universes_button.setIcon(QIcon(resource_path("./assets/universes.png")))
         universes_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred))
         # universes_button.setFixedWidth(25)
         universes_button.setCheckable(True)
@@ -652,7 +653,7 @@ class MainWindow(QWidget):
 
         self.change_interval(1)
 
-        self.apply_text_box_from("./assets/hint_initial", instant_preview=False)
+        self.apply_text_box_from(resource_path("./assets/hint_initial"), instant_preview=False)
         self.change_character()
 
         self.toggle_extra_noise(False)
@@ -735,7 +736,7 @@ class MainWindow(QWidget):
 
         self.remove_batch_file_button.setDisabled(True)
         if len(new_gif_paths) == 0:
-            self.apply_text_box_from("./assets/removed_all_boxes")
+            self.apply_text_box_from(resource_path("./assets/removed_all_boxes"))
             return
 
         self.set_gif_paths(new_gif_paths, reset_preview_index=False)
@@ -1061,7 +1062,7 @@ class MainWindow(QWidget):
 
             self.settings.making_for_preview = True
             self.settings.output_audio_path = get_preview_path()
-            self.settings.output_gif_path = "./assets/preview_output.gif" if doing_gif else None
+            self.settings.output_gif_path = resource_path("./assets/preview_output.gif") if doing_gif else None
             processor.make_and_save_blip_track(self.gif_paths[self.preview_index], self.settings, *self.voice_files)
             self.settings.making_for_preview = False
             self.sound = QSoundEffect()
@@ -1069,7 +1070,7 @@ class MainWindow(QWidget):
             self.preview_button.setText("End Preview")
 
             if doing_gif:
-                self.set_movie("./assets/preview_output.gif")
+                self.set_movie(resource_path("./assets/preview_output.gif"))
                 self.previewing_altered_gif = True
             else:
                 self.movie.jumpToFrame(0)
@@ -1191,10 +1192,10 @@ def make_big_button(name):
     return button
 
 def get_voices_directory():
-    return "./assets/builtin_voices/"
+    return resource_path("./assets/builtin_voices/")
 
 def get_preview_path():
-    return "./assets/preview_output.wav"
+    return resource_path("./assets/preview_output.wav")
 
 def clean_name(name):
     name = name.replace(".wav", "")
@@ -1285,7 +1286,7 @@ def add_characters_from_universe(dropdown, universe):
 
 def make_link_button(icon, url, tooltip):
     button: QPushButton = QPushButton()
-    button.setIcon(QIcon(f"./assets/{icon}"))
+    button.setIcon(QIcon(resource_path(f"./assets/{icon}")))
     button.setIconSize(QSize(32, 32))
     button.setToolTip(tooltip)
     button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
