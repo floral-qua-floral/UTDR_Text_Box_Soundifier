@@ -1114,7 +1114,8 @@ class MainWindow(QWidget):
             if output_folder != "":
                 for save_for_gif in self.gif_paths:
                     output_base_name = output_folder + "/" + save_for_gif.split("/")[-1][:-4]
-                    self.settings.output_gif_path = output_base_name + ".gif"
+                    if do_gifs:
+                        self.settings.output_gif_path = output_base_name + ".gif"
                     if self.save_blip_track(save_for_gif, output_base_name + ".wav"):
                         saved_any = True
 
