@@ -650,15 +650,10 @@ class MainWindow(QWidget):
             batch_mode_explanation
         ]
 
-        hint = "./assets/hint_text_box.gif"
-        if random.choice(range(1, 5)) == 1:
-            hint = "./assets/hint_text_box_rare.gif"
-        self.set_gif_paths([hint])
-
-        self.character_dropdown.setCurrentText("Default")
-        self.change_character()
-
         self.change_interval(1)
+
+        self.apply_text_box_from("./assets/hint_initial", instant_preview=False)
+        self.change_character()
 
         self.toggle_extra_noise(False)
 
@@ -1152,15 +1147,14 @@ class MainWindow(QWidget):
     def select_gifs_with_dialog(self):
         return QFileDialog.getOpenFileNames(self, caption="Open File", filter="Gif images (*.gif)")[0]
 
-    def apply_text_box_from(self, path):
+    def apply_text_box_from(self, path, instant_preview=True):
         selection = random.choice(os.listdir(path))
         self.set_gif_paths([path + "/" + selection])
         try:
             set_dropdown_to = selection[:-4].replace("_", "/")
             self.character_dropdown.setCurrentText(set_dropdown_to)
-            if self.character_dropdown.currentText() == set_dropdown_to:
-                self.change_character()
-
+            self.change_character()
+            if instant_preview and self.character_dropdown.currentText() == set_dropdown_to:
                 if self.recheck_eligibility():
                     self.toggle_preview(True)
                     self.preview_button.setChecked(True)
