@@ -14,6 +14,8 @@ import settings
 from settings import SoundifierSettings
 from girlhelp import resource_path
 
+VERSION = "1.0.4"
+
 CHARACTERS = {}
 DEFAULT_UNIVERSES = ["Basic", "Undertale", "Deltarune"]
 
@@ -85,8 +87,8 @@ class TextBoxDisplayAndImporter(QLabel):
         gifs = self.main_window.select_gifs_with_dialog()
         if len(gifs) > 0:
             self.main_window.set_gif_paths(gifs)
-        elif self.main_window.gif_paths[0].startswith(resource_path("./assets/hint")):
-            self.main_window.apply_text_box_from(resource_path("./assets/did_not_select_from_hint"))
+        elif self.main_window.gif_paths[0].startswith(resource_path("assets/hint")):
+            self.main_window.apply_text_box_from(resource_path("assets/did_not_select_from_hint"))
 
 class MainWindow(QWidget):
     settings: SoundifierSettings
@@ -166,6 +168,7 @@ class MainWindow(QWidget):
 
         # set the window title
         self.setWindowTitle("UTDR Text Box Soundifier")
+        self.setWindowIcon(QIcon(resource_path("soundifier.ico")))
 
         text_box_layout = QHBoxLayout()
 
@@ -221,7 +224,7 @@ class MainWindow(QWidget):
         batch_mode_layout.addWidget(self.batch_file_list)
         batch_mode_layout.addWidget(batch_mode_explanation)
 
-        voice_layout = make_config_section("Voice")[0]
+        voice_layout = make_config_section("    Voice")[0]
 
         character_layout = QHBoxLayout()
 
@@ -235,7 +238,7 @@ class MainWindow(QWidget):
         self.character_dropdown.activated.connect(self.change_character)
 
         universes_button: QPushButton = QPushButton()
-        universes_button.setIcon(QIcon(resource_path("./assets/universes.png")))
+        universes_button.setIcon(QIcon(resource_path("assets/universes.png")))
         universes_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred))
         # universes_button.setFixedWidth(25)
         universes_button.setCheckable(True)
@@ -538,9 +541,9 @@ class MainWindow(QWidget):
         <p style="text-indent:10px;">1. Use <a href="https://www.demirramon.com/generators/undertale_text_box_generator">Demirramon's Undertale Text Box Generator</a> to create an animated text box. (Make sure "Export settings>Format" is set to "Animated GIF".)</p>
         <p style="text-indent:10px;">2. Import the animated text box into the Soundifier. (Tip: You can import multiple at a time to Soundify them as a batch!)</p>
         <p style="text-indent:10px;">3. Configure the Soundifier's voice and processing settings to your liking.</p>
-        <p style="text-indent:10px;">4. Press "Preview Sound" to hear the output in sync with the preview at the top, or press "Save Sound" when you're done. If you've adjusted any setting that would modify the gif, you can save that too with "Save Sound + Gif".</p>
+        <p style="text-indent:10px;">4. Press "Preview" to hear the output in sync with the preview at the top, or press "Save Sound" when you're done. If you've adjusted any setting that would modify the gif, you can save that too with "Save Sound & Gif".</p>
         <p style="text-indent:10px;">5. Put the exported sound into the video editing software of your choice, at the same position of the timeline as the text box gif.</p>
-        <p>Tip: For slowed-down text boxes, you'll get better results putting the <em>original</em> text box straight from Demirramon's generator into your video editor and slowing it down using the editor controls, instead of using the "Save Sound + Gif" feature.</p>
+        <p>Tip: For slowed-down text boxes, you'll get better results putting the <em>original</em> text box straight from Demirramon's generator into your video editor and slowing it down using the editor controls, instead of using the "Save Sound & Gif" feature.</p>
         """
         )
 
@@ -585,9 +588,15 @@ class MainWindow(QWidget):
 
         footer_layout = QHBoxLayout()
 
+        # signature_layout = QVBoxLayout()
+
         signature = QLabel("<strong>Tool made by<br>floralQuaFloral</strong>")
         signature.setAlignment(Qt.AlignmentFlag.AlignBottom)
+        # signature.setStyleSheet("QLabel { color: #ff9bee; background-color: #000000; }")
         signature.setFont(QFont("Arial", 11))
+
+        # signature_layout.addWidget(version_label)
+        # signature_layout.addWidget(signature)
 
         self.preview_button = make_big_button("Preview")
         self.preview_button.setCheckable(True)
@@ -601,6 +610,7 @@ class MainWindow(QWidget):
         self.save_gif_button.setDisabled(True)
 
         footer_layout.addWidget(signature)
+        # footer_layout.addLayout(signature_layout)
         footer_layout.addStretch()
         footer_layout.addWidget(self.preview_button)
         footer_layout.addWidget(make_vertical_line())
@@ -653,7 +663,7 @@ class MainWindow(QWidget):
 
         self.change_interval(1)
 
-        self.apply_text_box_from(resource_path("./assets/hint_initial"), instant_preview=False)
+        self.apply_text_box_from(resource_path("assets/hint_initial"), instant_preview=False)
         self.change_character()
 
         self.toggle_extra_noise(False)
@@ -736,7 +746,7 @@ class MainWindow(QWidget):
 
         self.remove_batch_file_button.setDisabled(True)
         if len(new_gif_paths) == 0:
-            self.apply_text_box_from(resource_path("./assets/removed_all_boxes"))
+            self.apply_text_box_from(resource_path("assets/removed_all_boxes"))
             return
 
         self.set_gif_paths(new_gif_paths, reset_preview_index=False)
@@ -1062,7 +1072,7 @@ class MainWindow(QWidget):
 
             self.settings.making_for_preview = True
             self.settings.output_audio_path = get_preview_path()
-            self.settings.output_gif_path = resource_path("./assets/preview_output.gif") if doing_gif else None
+            self.settings.output_gif_path = resource_path("assets/preview_output.gif") if doing_gif else None
             processor.make_and_save_blip_track(self.gif_paths[self.preview_index], self.settings, *self.voice_files)
             self.settings.making_for_preview = False
             self.sound = QSoundEffect()
@@ -1070,7 +1080,7 @@ class MainWindow(QWidget):
             self.preview_button.setText("End Preview")
 
             if doing_gif:
-                self.set_movie(resource_path("./assets/preview_output.gif"))
+                self.set_movie(resource_path("assets/preview_output.gif"))
                 self.previewing_altered_gif = True
             else:
                 self.movie.jumpToFrame(0)
@@ -1171,7 +1181,23 @@ def make_config_section(name):
     label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
     label.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred))
     label.setFont(QFont("Arial", 16))
-    layout.addWidget(label)
+
+    if name.endswith("Voice"):
+        version_and_label = QHBoxLayout()
+
+        version_label = QLabel(f"<em>Version {VERSION}</em>")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        version_label.setStyleSheet("QLabel { color: #656565; }")
+        version_label.setFont(QFont("Arial", 8))
+
+        version_and_label.addWidget(version_label)
+        # version_and_label.addStretch()
+        version_and_label.addWidget(label)
+        version_and_label.addStretch()
+
+        layout.addLayout(version_and_label)
+    else:
+        layout.addWidget(label)
     return layout, label
 
 def make_line(shape):
@@ -1192,10 +1218,10 @@ def make_big_button(name):
     return button
 
 def get_voices_directory():
-    return resource_path("./assets/builtin_voices/")
+    return resource_path("assets/builtin_voices/")
 
 def get_preview_path():
-    return resource_path("./assets/preview_output.wav")
+    return resource_path("assets/preview_output.wav")
 
 def clean_name(name):
     name = name.replace(".wav", "")
@@ -1286,7 +1312,7 @@ def add_characters_from_universe(dropdown, universe):
 
 def make_link_button(icon, url, tooltip):
     button: QPushButton = QPushButton()
-    button.setIcon(QIcon(resource_path(f"./assets/{icon}")))
+    button.setIcon(QIcon(resource_path(f"assets/{icon}")))
     button.setIconSize(QSize(32, 32))
     button.setToolTip(tooltip)
     button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
@@ -1312,6 +1338,7 @@ def make_punctuation_skip_availability_excuse(excuse):
 if __name__ == '__main__':
     # create the QApplication
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(resource_path("soundifier.ico")))
 
     # create the main window
     window = MainWindow()
