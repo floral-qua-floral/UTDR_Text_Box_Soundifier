@@ -44,9 +44,8 @@ jobs:
 
       - name: Rename artifact
         run: |
-          VERSION="${{ github.ref_name }}"
           mkdir upload
-          cp dist/soundifier${{ matrix.ext }} "upload/soundifier-${VERSION}-${{ matrix.suffix }}${{ matrix.ext }}"
+          cp dist/soundifier${{ matrix.ext }} "upload/soundifier-${{ github.ref_name }}-${{ matrix.suffix }}${{ matrix.ext }}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
