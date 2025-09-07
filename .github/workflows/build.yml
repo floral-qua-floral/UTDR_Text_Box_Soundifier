@@ -31,7 +31,7 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --onefile --windowed --icon=soundifier.ico --additional-hooks-dir=. --add-data "soundifier.ico:." --add-data "assets:assets" src/gui.py --name soundifier
+          pyinstaller --onefile --windowed --icon=soundifier.ico --additional-hooks-dir=. --add-data "soundifier.ico:." --add-data "assets:assets" gui.py --name soundifier
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
